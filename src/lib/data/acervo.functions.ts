@@ -139,6 +139,64 @@ export const getEntityDetail = createServerFn({ method: "GET" })
     return { entity, related, bibliography };
   });
 
+
+export const listEntitiesByTag = createServerFn({ method: "GET" })
+  .inputValidator((d: unknown) =>
+    z.object({ tag: z.string().trim().min(1).max(120) }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    const { query } = await import("@/lib/turso/client.server");
+    const like = `%${data.tag.trim()}%`;
+
+    return await query<{
+      id: string;
+      title: string;
+      subtitle: string | null;
+      description: string | null;
+      entity_type: string;
+      image_url: string | null;
+      date_display: string | null;
+      country: string | null;
+      continent: string | null;
+      culture: string | null;
+      source_url: string | null;
+      tags: string;
+      themes: string;
+      metadata: string;
+    }>(
+      `WITH ranked AS (
+         SELECT
+           id, title, subtitle, description, entity_type, image_url, date_display,
+           country, continent, culture, source_url, tags, themes, metadata,
+           ROW_NUMBER() OVER (
+             PARTITION BY
+               CASE
+                 WHEN image_url IS NOT NULL AND trim(image_url) <> ''
+                   THEN lower(trim(image_url))
+                 ELSE lower(trim(title)) || '|' || lower(trim(COALESCE(subtitle, '')))
+               END
+             ORDER BY created_at ASC, id ASC
+           ) AS duplicate_rank
+         FROM entities
+         WHERE status = 'published'
+           AND (
+             COALESCE(tags, '') LIKE ?1 COLLATE NOCASE
+             OR COALESCE(themes, '') LIKE ?1 COLLATE NOCASE
+             OR COALESCE(metadata, '') LIKE ?1 COLLATE NOCASE
+             OR COALESCE(culture, '') LIKE ?1 COLLATE NOCASE
+             OR COALESCE(country, '') LIKE ?1 COLLATE NOCASE
+           )
+       )
+       SELECT id, title, subtitle, description, entity_type, image_url, date_display,
+              country, continent, culture, source_url, tags, themes, metadata
+       FROM ranked
+       WHERE duplicate_rank = 1
+       ORDER BY title COLLATE NOCASE ASC
+       LIMIT 240`,
+      [like],
+    );
+  });
+
 export const getNetwork = createServerFn({ method: "GET" }).handler(async () => {
   const { query } = await import("@/lib/turso/client.server");
   const [nodes, links] = await Promise.all([
