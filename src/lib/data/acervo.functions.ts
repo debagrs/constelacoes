@@ -1,5 +1,6 @@
 /**
- * Leituras públicas do acervo (Turso). Thin wrapper: nada em escopo de módulo.
+ * Leituras públicas do acervo (Turso).
+ * A listagem remove duplicatas visuais sem apagar nenhum registro do banco.
  */
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
@@ -20,8 +21,29 @@ export const listAcervo = createServerFn({ method: "GET" }).handler(async () => 
     themes: string;
     metadata: string;
   }>(
-    `SELECT id, title, subtitle, entity_type, image_url, date_display, continent, country, culture, tags, themes, metadata
-       FROM entities WHERE status = 'published' ORDER BY title COLLATE NOCASE ASC`,
+    `WITH ranked AS (
+       SELECT
+         id, title, subtitle, entity_type, image_url, date_display,
+         continent, country, culture, tags, themes, metadata,
+         ROW_NUMBER() OVER (
+           PARTITION BY
+             CASE
+               WHEN image_url IS NOT NULL AND trim(image_url) <> '' THEN lower(trim(image_url))
+               ELSE lower(trim(title)) || '|' || lower(trim(COALESCE(subtitle, '')))
+             END
+           ORDER BY
+             CASE WHEN image_url IS NOT NULL AND trim(image_url) <> '' THEN 0 ELSE 1 END,
+             created_at ASC,
+             id ASC
+         ) AS duplicate_rank
+       FROM entities
+       WHERE status = 'published'
+     )
+     SELECT id, title, subtitle, entity_type, image_url, date_display,
+            continent, country, culture, tags, themes, metadata
+     FROM ranked
+     WHERE duplicate_rank = 1
+     ORDER BY title COLLATE NOCASE ASC`,
   );
 });
 
@@ -36,10 +58,23 @@ export const listFeatured = createServerFn({ method: "GET" }).handler(async () =
     date_display: string | null;
     continent: string | null;
   }>(
-    `SELECT id, title, subtitle, entity_type, image_url, date_display, continent
+    `WITH ranked AS (
+       SELECT id, title, subtitle, entity_type, image_url, date_display, continent,
+              ROW_NUMBER() OVER (
+                PARTITION BY lower(trim(image_url))
+                ORDER BY created_at DESC, id ASC
+              ) AS duplicate_rank,
+              created_at
        FROM entities
-      WHERE status = 'published' AND image_url IS NOT NULL AND image_url <> ''
-      ORDER BY created_at DESC LIMIT 6`,
+       WHERE status = 'published'
+         AND image_url IS NOT NULL
+         AND trim(image_url) <> ''
+     )
+     SELECT id, title, subtitle, entity_type, image_url, date_display, continent
+     FROM ranked
+     WHERE duplicate_rank = 1
+     ORDER BY created_at DESC
+     LIMIT 6`,
   );
 });
 
