@@ -136,7 +136,111 @@ export const getEntityDetail = createServerFn({ method: "GET" })
       [data.id],
     );
 
-    return { entity, related, bibliography };
+    const entityType = String(entity.entity_type ?? "").toLowerCase();
+
+    const sameArtistWorks = await query<{
+      id: string;
+      title: string;
+      subtitle: string | null;
+      entity_type: string;
+      image_url: string | null;
+      date_display: string | null;
+      country: string | null;
+      culture: string | null;
+      source_url: string | null;
+    }>(
+      entityType === "artista"
+        ? `WITH candidates AS (
+             SELECT e.id, e.title, e.subtitle, e.entity_type, e.image_url,
+                    e.date_display, e.country, e.culture, e.source_url,
+                    ROW_NUMBER() OVER (
+                      PARTITION BY CASE
+                        WHEN e.image_url IS NOT NULL AND trim(e.image_url) <> ''
+                          THEN lower(trim(e.image_url))
+                        ELSE lower(trim(e.title)) || '|' || lower(trim(COALESCE(e.subtitle, '')))
+                      END
+                      ORDER BY e.created_at ASC, e.id ASC
+                    ) AS duplicate_rank
+               FROM entities e
+              WHERE e.status = 'published'
+                AND e.id <> ?1
+                AND e.entity_type IN ('obra','projeto','fotografia','design','arquitetura','filme','performance')
+                AND (
+                  lower(trim(COALESCE(e.subtitle, ''))) = lower(trim(?2))
+                  OR lower(COALESCE(e.subtitle, '')) LIKE '%' || lower(trim(?2)) || '%'
+                  OR lower(COALESCE(e.metadata, '')) LIKE '%' || lower(trim(?2)) || '%'
+                  OR EXISTS (
+                    SELECT 1 FROM relations r
+                     WHERE r.status = 'published'
+                       AND ((r.source_id = ?1 AND r.target_id = e.id)
+                         OR (r.target_id = ?1 AND r.source_id = e.id))
+                  )
+                )
+           )
+           SELECT id, title, subtitle, entity_type, image_url, date_display,
+                  country, culture, source_url
+             FROM candidates
+            WHERE duplicate_rank = 1
+            ORDER BY COALESCE(date_display, ''), title COLLATE NOCASE
+            LIMIT 24`
+        : `WITH creators AS (
+             SELECT DISTINCT other_id, other_title
+               FROM (
+                 SELECT CASE WHEN r.source_id = ?1 THEN r.target_id ELSE r.source_id END AS other_id,
+                        a.title AS other_title, a.entity_type AS other_type
+                   FROM relations r
+                   JOIN entities a ON a.id = CASE WHEN r.source_id = ?1 THEN r.target_id ELSE r.source_id END
+                  WHERE r.status = 'published'
+                    AND (r.source_id = ?1 OR r.target_id = ?1)
+               )
+              WHERE lower(other_type) = 'artista'
+           ), candidates AS (
+             SELECT e.id, e.title, e.subtitle, e.entity_type, e.image_url,
+                    e.date_display, e.country, e.culture, e.source_url,
+                    ROW_NUMBER() OVER (
+                      PARTITION BY CASE
+                        WHEN e.image_url IS NOT NULL AND trim(e.image_url) <> ''
+                          THEN lower(trim(e.image_url))
+                        ELSE lower(trim(e.title)) || '|' || lower(trim(COALESCE(e.subtitle, '')))
+                      END
+                      ORDER BY e.created_at ASC, e.id ASC
+                    ) AS duplicate_rank
+               FROM entities e
+              WHERE e.status = 'published'
+                AND e.id <> ?1
+                AND e.entity_type IN ('obra','projeto','fotografia','design','arquitetura','filme','performance')
+                AND (
+                  EXISTS (
+                    SELECT 1 FROM creators c
+                     WHERE lower(trim(COALESCE(e.subtitle, ''))) = lower(trim(c.other_title))
+                        OR lower(COALESCE(e.metadata, '')) LIKE '%' || lower(trim(c.other_title)) || '%'
+                        OR EXISTS (
+                          SELECT 1 FROM relations rr
+                           WHERE rr.status = 'published'
+                             AND ((rr.source_id = c.other_id AND rr.target_id = e.id)
+                               OR (rr.target_id = c.other_id AND rr.source_id = e.id))
+                        )
+                  )
+                  OR (
+                    NOT EXISTS (SELECT 1 FROM creators)
+                    AND trim(COALESCE(?2, '')) <> ''
+                    AND (
+                      lower(trim(COALESCE(e.subtitle, ''))) = lower(trim(?2))
+                      OR lower(COALESCE(e.subtitle, '')) LIKE '%' || lower(trim(?2)) || '%'
+                    )
+                  )
+                )
+           )
+           SELECT id, title, subtitle, entity_type, image_url, date_display,
+                  country, culture, source_url
+             FROM candidates
+            WHERE duplicate_rank = 1
+            ORDER BY COALESCE(date_display, ''), title COLLATE NOCASE
+            LIMIT 24`,
+      [data.id, entity.subtitle ?? entity.title],
+    );
+
+    return { entity, related, bibliography, sameArtistWorks };
   });
 
 
@@ -199,18 +303,59 @@ export const listEntitiesByTag = createServerFn({ method: "GET" })
 
 export const getNetwork = createServerFn({ method: "GET" }).handler(async () => {
   const { query } = await import("@/lib/turso/client.server");
-  const [nodes, links] = await Promise.all([
-    query<{ id: string; title: string; entity_type: string }>(
-      "SELECT id, title, entity_type FROM entities WHERE status = 'published'",
+
+  const normalizeRelationType = (value: string) =>
+    value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_")
+      .replace(/^influence$/, "influencia")
+      .replace(/^continuity$/, "continuidade")
+      .replace(/^survival$/, "sobrevivencia");
+
+  const rawLinks = await query<{
+    id: string;
+    source_id: string;
+    target_id: string;
+    relation_type: string;
+  }>(
+    `SELECT id, source_id, target_id, relation_type
+       FROM relations
+      WHERE status = 'published'
+        AND source_id IS NOT NULL
+        AND target_id IS NOT NULL
+        AND trim(source_id) <> ''
+        AND trim(target_id) <> ''`,
+  );
+
+  const links = rawLinks.map((link) => ({
+    ...link,
+    relation_type: normalizeRelationType(link.relation_type),
+  }));
+
+  const connectedIds = Array.from(
+    new Set(links.flatMap((link) => [link.source_id, link.target_id])),
+  );
+
+  if (connectedIds.length === 0) return { nodes: [], links: [] };
+
+  const placeholders = connectedIds.map(() => "?").join(",");
+  const nodes = await query<{ id: string; title: string; entity_type: string }>(
+    `SELECT id, title, entity_type
+       FROM entities
+      WHERE status = 'published'
+        AND id IN (${placeholders})
+      ORDER BY title COLLATE NOCASE`,
+    connectedIds,
+  );
+
+  const validIds = new Set(nodes.map((node) => node.id));
+  return {
+    nodes,
+    links: links.filter(
+      (link) => validIds.has(link.source_id) && validIds.has(link.target_id),
     ),
-    query<{
-      id: string;
-      source_id: string;
-      target_id: string;
-      relation_type: string;
-    }>(
-      "SELECT id, source_id, target_id, relation_type FROM relations WHERE status = 'published'",
-    ),
-  ]);
-  return { nodes, links };
+  };
 });
