@@ -1,0 +1,13 @@
+{
+  "name": "Atlas Planetário da Cultura Visual",
+  "short_name": "Atlas Planetário",
+  "description": "Cartografia planetária da cultura visual, das constelações de memória e dos futuros possíveis.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070a0f",
+  "theme_color": "#070a0f",
+  "icons": [
+    {"src": "/android-chrome-192x192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "/android-chrome-512x512.png", "sizes": "512x512", "type": "image/png"}
+  ]
+}
