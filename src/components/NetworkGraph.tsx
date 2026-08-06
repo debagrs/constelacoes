@@ -240,7 +240,7 @@ export function NetworkGraph({
           {visibleLinks.map((l) => {
             const s = l.source as unknown as GraphNode;
             const t = l.target as unknown as GraphNode;
-            if (!s?.x || !t?.x) return null;
+            if (s?.x == null || s?.y == null || t?.x == null || t?.y == null) return null;
             const dim =
               hoverId && !(neighborsOfHover.has(s.id) && neighborsOfHover.has(t.id));
             return (
@@ -251,8 +251,8 @@ export function NetworkGraph({
                 x2={t.x}
                 y2={t.y}
                 stroke={relationColor(l.relation_type)}
-                strokeWidth={1.2 / transform.k}
-                strokeOpacity={dim ? 0.08 : 0.55}
+                strokeWidth={(hoverId ? 1.8 : 2.2) / transform.k}
+                strokeOpacity={dim ? 0.1 : 0.82}
               />
             );
           })}
