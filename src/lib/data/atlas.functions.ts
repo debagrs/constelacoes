@@ -179,7 +179,12 @@ export const saveAtlas = createServerFn({ method: "POST" })
     }
 
     await batch(statements);
-    return { savedAt: now };
+    const savedCards = await queryOne<{ total: number }>(
+      "SELECT COUNT(*) AS total FROM atlas_cards WHERE atlas_id = ?",
+      [data.atlasId],
+    );
+
+    return { savedAt: now, totalCards: Number(savedCards?.total ?? 0) };
   });
 
 export const deleteAtlas = createServerFn({ method: "POST" })
@@ -224,11 +229,15 @@ export const searchAtlasEntities = createServerFn({ method: "GET" })
       date_display: string | null;
       continent: string | null;
       country: string | null;
+      culture: string | null;
+      source_url: string | null;
+      image_license: string | null;
+      metadata: string;
     }>(
       `WITH filtered AS (
          SELECT
            id, title, subtitle, entity_type, image_url, date_display,
-           continent, country, created_at,
+           continent, country, culture, source_url, image_license, metadata, created_at,
            ROW_NUMBER() OVER (
              PARTITION BY lower(trim(image_url))
              ORDER BY created_at ASC, id ASC
@@ -248,7 +257,7 @@ export const searchAtlasEntities = createServerFn({ method: "GET" })
            )
        )
        SELECT id, title, subtitle, entity_type, image_url,
-              date_display, continent, country
+              date_display, continent, country, culture, source_url, image_license, metadata
        FROM filtered
        WHERE duplicate_rank = 1
        ORDER BY title COLLATE NOCASE ASC
