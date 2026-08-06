@@ -12,6 +12,7 @@ import {
   signIn as signInFn,
   signOut as signOutFn,
   signUp as signUpFn,
+  type AuthResult,
 } from "@/lib/auth/auth.functions";
 
 export type AppRole = "admin" | "curador" | "professor" | "estudante";
@@ -45,6 +46,13 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export const currentUserQueryKey = ["current-user"] as const;
 
+function unwrapAuthResult(result: AuthResult): SessionUser {
+  if (!result.ok) {
+    throw new Error(result.error);
+  }
+  return result.user;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const fetchMe = useServerFn(getCurrentUser);
@@ -56,22 +64,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryKey: currentUserQueryKey,
     queryFn: () => fetchMe(),
     staleTime: 60_000,
+    retry: false,
   });
 
   const user = (data as SessionUser | null) ?? null;
 
   const signInWithPassword = useCallback(
     async (email: string, password: string) => {
-      await doSignIn({ data: { email, password } });
-      await queryClient.invalidateQueries();
+      const result = (await doSignIn({ data: { email, password } })) as AuthResult;
+      const authenticatedUser = unwrapAuthResult(result);
+      queryClient.setQueryData(currentUserQueryKey, authenticatedUser);
+      await queryClient.invalidateQueries({ queryKey: currentUserQueryKey });
     },
     [doSignIn, queryClient],
   );
 
   const signUpWithPassword = useCallback(
     async (email: string, password: string, displayName: string) => {
-      await doSignUp({ data: { email, password, displayName } });
-      await queryClient.invalidateQueries();
+      const result = (await doSignUp({
+        data: { email, password, displayName },
+      })) as AuthResult;
+      const authenticatedUser = unwrapAuthResult(result);
+      queryClient.setQueryData(currentUserQueryKey, authenticatedUser);
+      await queryClient.invalidateQueries({ queryKey: currentUserQueryKey });
     },
     [doSignUp, queryClient],
   );
@@ -79,12 +94,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     await doSignOut({});
     queryClient.setQueryData(currentUserQueryKey, null);
-    await queryClient.invalidateQueries();
+    await queryClient.invalidateQueries({ queryKey: currentUserQueryKey });
   }, [doSignOut, queryClient]);
 
   const value = useMemo<AuthContextValue>(() => {
     const roles = user?.roles ?? [];
     const hasRole = (role: AppRole) => roles.includes(role);
+
     return {
       user,
       session: user,
@@ -104,7 +120,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 }
 
 export function useAuth() {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
-  return ctx;
+  const context = useContext(AuthContext);
+  if (!context) throw new Error("useAuth must be used within AuthProvider");
+  return context;
 }
