@@ -1,0 +1,752 @@
+[
+  {
+    "id": "africa",
+    "parent_id": null,
+    "name": "África",
+    "continent": "África",
+    "latitude": 2,
+    "longitude": 20,
+    "summary": "Berço de linhagens artísticas contínuas há mais de 100 mil anos.",
+    "sort_order": 0
+  },
+  {
+    "id": "africa-ocidental",
+    "parent_id": "africa",
+    "name": "África Ocidental",
+    "continent": "África",
+    "latitude": 9,
+    "longitude": -3,
+    "summary": "Nok, Ifé, Benim, Akan, Bamana, Iorubá.",
+    "sort_order": 1
+  },
+  {
+    "id": "africa-oriental",
+    "parent_id": "africa",
+    "name": "África Oriental",
+    "continent": "África",
+    "latitude": 0,
+    "longitude": 37,
+    "summary": "Swahili, Kikuyu, Maasai, costa do Índico.",
+    "sort_order": 2
+  },
+  {
+    "id": "africa-austral",
+    "parent_id": "africa",
+    "name": "África Austral",
+    "continent": "África",
+    "latitude": -25,
+    "longitude": 25,
+    "summary": "San, Zimbábue, Ndebele, Zulu.",
+    "sort_order": 3
+  },
+  {
+    "id": "norte-africa",
+    "parent_id": "africa",
+    "name": "Norte da África",
+    "continent": "África",
+    "latitude": 30,
+    "longitude": 10,
+    "summary": "Amazigh, Cartago, Magreb, Al-Andalus norte-africano.",
+    "sort_order": 4
+  },
+  {
+    "id": "sahel",
+    "parent_id": "africa",
+    "name": "Sahel",
+    "continent": "África",
+    "latitude": 15,
+    "longitude": 0,
+    "summary": "Tichitt, Djenné, Tombuctu, Dogon.",
+    "sort_order": 5
+  },
+  {
+    "id": "etiopia",
+    "parent_id": "africa",
+    "name": "Etiópia e Chifre",
+    "continent": "África",
+    "latitude": 9,
+    "longitude": 39,
+    "summary": "Aksum, Lalibela, iluminuras Ge'ez.",
+    "sort_order": 6
+  },
+  {
+    "id": "mali",
+    "parent_id": "africa",
+    "name": "Mali",
+    "continent": "África",
+    "latitude": 17,
+    "longitude": -4,
+    "summary": "Djenné-Djenno, Império do Mali, Dogon.",
+    "sort_order": 7
+  },
+  {
+    "id": "nigeria",
+    "parent_id": "africa",
+    "name": "Nigéria",
+    "continent": "África",
+    "latitude": 9,
+    "longitude": 8,
+    "summary": "Nok, Ifé, Igbo-Ukwu, Iorubá.",
+    "sort_order": 8
+  },
+  {
+    "id": "benim",
+    "parent_id": "africa",
+    "name": "Reino do Benim",
+    "continent": "África",
+    "latitude": 6.3,
+    "longitude": 5.6,
+    "summary": "Bronzes e placas de latão da corte de Edo.",
+    "sort_order": 9
+  },
+  {
+    "id": "egito",
+    "parent_id": "africa",
+    "name": "Egito",
+    "continent": "África",
+    "latitude": 26,
+    "longitude": 30,
+    "summary": "Nagada, Antigo Império, Amarna, Copta.",
+    "sort_order": 10
+  },
+  {
+    "id": "africa-do-sul",
+    "parent_id": "africa",
+    "name": "África do Sul",
+    "continent": "África",
+    "latitude": -30,
+    "longitude": 24,
+    "summary": "Arte rupestre San, Ndebele, arte contemporânea.",
+    "sort_order": 11
+  },
+  {
+    "id": "congo",
+    "parent_id": "africa",
+    "name": "Bacia do Congo",
+    "continent": "África",
+    "latitude": -2,
+    "longitude": 21,
+    "summary": "Kuba, Kongo, Luba, Songye.",
+    "sort_order": 12
+  },
+  {
+    "id": "america-do-sul",
+    "parent_id": null,
+    "name": "América do Sul",
+    "continent": "América do Sul",
+    "latitude": -15,
+    "longitude": -60,
+    "summary": "Amazônia, Andes, Cone Sul e diásporas afro-indígenas.",
+    "sort_order": 13
+  },
+  {
+    "id": "brasil",
+    "parent_id": "america-do-sul",
+    "name": "Brasil",
+    "continent": "América do Sul",
+    "latitude": -12,
+    "longitude": -50,
+    "summary": "Serra da Capivara, barroco mineiro, modernismos, arte indígena contemporânea.",
+    "sort_order": 14
+  },
+  {
+    "id": "andes",
+    "parent_id": "america-do-sul",
+    "name": "Andes",
+    "continent": "América do Sul",
+    "latitude": -13,
+    "longitude": -73,
+    "summary": "Chavín, Paracas, Nasca, Moche, Wari, Tiwanaku, Inca.",
+    "sort_order": 15
+  },
+  {
+    "id": "amazonia",
+    "parent_id": "america-do-sul",
+    "name": "Amazônia",
+    "continent": "América do Sul",
+    "latitude": -4,
+    "longitude": -60,
+    "summary": "Marajoara, Santarém, cestaria, grafismos, plumária.",
+    "sort_order": 16
+  },
+  {
+    "id": "patagonia",
+    "parent_id": "america-do-sul",
+    "name": "Patagônia",
+    "continent": "América do Sul",
+    "latitude": -46,
+    "longitude": -70,
+    "summary": "Cueva de las Manos, Selk'nam, Tehuelche.",
+    "sort_order": 17
+  },
+  {
+    "id": "guarani",
+    "parent_id": "america-do-sul",
+    "name": "Território Guarani",
+    "continent": "América do Sul",
+    "latitude": -25,
+    "longitude": -55,
+    "summary": "Cosmologia, cerâmica, missões e resistência.",
+    "sort_order": 18
+  },
+  {
+    "id": "mapuche",
+    "parent_id": "america-do-sul",
+    "name": "Território Mapuche",
+    "continent": "América do Sul",
+    "latitude": -38,
+    "longitude": -72,
+    "summary": "Ourivesaria, têxteis, rewe.",
+    "sort_order": 19
+  },
+  {
+    "id": "afro-brasileiro",
+    "parent_id": "america-do-sul",
+    "name": "Territórios afro-brasileiros",
+    "continent": "América do Sul",
+    "latitude": -13,
+    "longitude": -38,
+    "summary": "Quilombos, candomblé, carnaval, arte popular.",
+    "sort_order": 20
+  },
+  {
+    "id": "america-central",
+    "parent_id": null,
+    "name": "América Central",
+    "continent": "América Central",
+    "latitude": 15,
+    "longitude": -88,
+    "summary": "Mesoamérica e Caribe.",
+    "sort_order": 21
+  },
+  {
+    "id": "mesoamerica",
+    "parent_id": "america-central",
+    "name": "Mesoamérica",
+    "continent": "América Central",
+    "latitude": 18,
+    "longitude": -97,
+    "summary": "Olmeca, Maia, Teotihuacan, Zapoteca, Mexica.",
+    "sort_order": 22
+  },
+  {
+    "id": "caribe",
+    "parent_id": "america-central",
+    "name": "Caribe",
+    "continent": "América Central",
+    "latitude": 18,
+    "longitude": -70,
+    "summary": "Taíno, diásporas africanas, arte popular.",
+    "sort_order": 23
+  },
+  {
+    "id": "america-do-norte",
+    "parent_id": null,
+    "name": "América do Norte",
+    "continent": "América do Norte",
+    "latitude": 45,
+    "longitude": -100,
+    "summary": "Primeiras Nações, Inuit e culturas diaspóricas.",
+    "sort_order": 24
+  },
+  {
+    "id": "primeiras-nacoes",
+    "parent_id": "america-do-norte",
+    "name": "Primeiras Nações",
+    "continent": "América do Norte",
+    "latitude": 50,
+    "longitude": -110,
+    "summary": "Haida, Lakota, Navajo, Pueblo, Anishinaabe.",
+    "sort_order": 25
+  },
+  {
+    "id": "inuit",
+    "parent_id": "america-do-norte",
+    "name": "Ártico e Inuit",
+    "continent": "América do Norte",
+    "latitude": 68,
+    "longitude": -80,
+    "summary": "Escultura em pedra-sabão, Dorset, Thule.",
+    "sort_order": 26
+  },
+  {
+    "id": "afro-americano",
+    "parent_id": "america-do-norte",
+    "name": "Territórios afro-americanos",
+    "continent": "América do Norte",
+    "latitude": 33,
+    "longitude": -85,
+    "summary": "Quilts do Gee's Bend, Harlem, blues visual.",
+    "sort_order": 27
+  },
+  {
+    "id": "chicano",
+    "parent_id": "america-do-norte",
+    "name": "Territórios latinos e chicanos",
+    "continent": "América do Norte",
+    "latitude": 32,
+    "longitude": -110,
+    "summary": "Muralismo, gráfica, fronteiras.",
+    "sort_order": 28
+  },
+  {
+    "id": "europa",
+    "parent_id": null,
+    "name": "Europa",
+    "continent": "Europa",
+    "latitude": 50,
+    "longitude": 15,
+    "summary": "Muito além do eixo França–Itália.",
+    "sort_order": 29
+  },
+  {
+    "id": "iberia",
+    "parent_id": "europa",
+    "name": "Ibéria",
+    "continent": "Europa",
+    "latitude": 40,
+    "longitude": -4,
+    "summary": "Altamira, Al-Andalus, barroco ibérico.",
+    "sort_order": 30
+  },
+  {
+    "id": "italia",
+    "parent_id": "europa",
+    "name": "Itália",
+    "continent": "Europa",
+    "latitude": 42,
+    "longitude": 12,
+    "summary": "Etruscos, Roma, Renascimento, Barroco.",
+    "sort_order": 31
+  },
+  {
+    "id": "franca",
+    "parent_id": "europa",
+    "name": "França",
+    "continent": "Europa",
+    "latitude": 47,
+    "longitude": 2,
+    "summary": "Chauvet, Lascaux, gótico, modernismos.",
+    "sort_order": 32
+  },
+  {
+    "id": "balcas",
+    "parent_id": "europa",
+    "name": "Bálcãs",
+    "continent": "Europa",
+    "latitude": 43,
+    "longitude": 21,
+    "summary": "Vinča, Bizâncio, afrescos sérvios e búlgaros.",
+    "sort_order": 33
+  },
+  {
+    "id": "escandinavia",
+    "parent_id": "europa",
+    "name": "Escandinávia",
+    "continent": "Europa",
+    "latitude": 62,
+    "longitude": 15,
+    "summary": "Petróglifos, arte viking, Sámi.",
+    "sort_order": 34
+  },
+  {
+    "id": "europa-oriental",
+    "parent_id": "europa",
+    "name": "Europa Oriental",
+    "continent": "Europa",
+    "latitude": 52,
+    "longitude": 30,
+    "summary": "Rus de Kiev, ícones, vanguardas.",
+    "sort_order": 35
+  },
+  {
+    "id": "caucaso",
+    "parent_id": "europa",
+    "name": "Cáucaso",
+    "continent": "Europa",
+    "latitude": 42,
+    "longitude": 44,
+    "summary": "Armênia, Geórgia, esmaltes e iluminuras.",
+    "sort_order": 36
+  },
+  {
+    "id": "britanicas",
+    "parent_id": "europa",
+    "name": "Ilhas Britânicas e Irlanda",
+    "continent": "Europa",
+    "latitude": 54,
+    "longitude": -4,
+    "summary": "Newgrange, Book of Kells, insular.",
+    "sort_order": 37
+  },
+  {
+    "id": "europa-central",
+    "parent_id": "europa",
+    "name": "Europa Central",
+    "continent": "Europa",
+    "latitude": 50,
+    "longitude": 17,
+    "summary": "Gótico, Bauhaus, Boêmia.",
+    "sort_order": 38
+  },
+  {
+    "id": "oriente-medio",
+    "parent_id": null,
+    "name": "Oriente Médio",
+    "continent": "Oriente Médio",
+    "latitude": 32,
+    "longitude": 43,
+    "summary": "Mesopotâmia, Levante, Pérsia, Anatólia, Arábia.",
+    "sort_order": 39
+  },
+  {
+    "id": "mesopotamia",
+    "parent_id": "oriente-medio",
+    "name": "Mesopotâmia",
+    "continent": "Oriente Médio",
+    "latitude": 33,
+    "longitude": 44,
+    "summary": "Uruk, Suméria, Acádia, Babilônia, Assíria.",
+    "sort_order": 40
+  },
+  {
+    "id": "persia",
+    "parent_id": "oriente-medio",
+    "name": "Pérsia",
+    "continent": "Oriente Médio",
+    "latitude": 32,
+    "longitude": 53,
+    "summary": "Persépolis, miniatura, azulejaria.",
+    "sort_order": 41
+  },
+  {
+    "id": "anatolia",
+    "parent_id": "oriente-medio",
+    "name": "Anatólia",
+    "continent": "Oriente Médio",
+    "latitude": 39,
+    "longitude": 35,
+    "summary": "Göbekli Tepe, Çatalhöyük, Bizâncio, otomanos.",
+    "sort_order": 42
+  },
+  {
+    "id": "levante",
+    "parent_id": "oriente-medio",
+    "name": "Levante",
+    "continent": "Oriente Médio",
+    "latitude": 33,
+    "longitude": 36,
+    "summary": "Fenícios, Palmira, Omíadas.",
+    "sort_order": 43
+  },
+  {
+    "id": "arabia",
+    "parent_id": "oriente-medio",
+    "name": "Península Arábica",
+    "continent": "Oriente Médio",
+    "latitude": 24,
+    "longitude": 45,
+    "summary": "Rupestre de Ḥaʼil, caligrafia, arquitetura.",
+    "sort_order": 44
+  },
+  {
+    "id": "sul-da-asia",
+    "parent_id": null,
+    "name": "Sul da Ásia",
+    "continent": "Sul da Ásia",
+    "latitude": 22,
+    "longitude": 78,
+    "summary": "Índia, Paquistão, Nepal, Sri Lanka, Bangladesh.",
+    "sort_order": 45
+  },
+  {
+    "id": "bhimbetka",
+    "parent_id": "sul-da-asia",
+    "name": "Índia Central",
+    "continent": "Sul da Ásia",
+    "latitude": 22.9,
+    "longitude": 77.6,
+    "summary": "Abrigos rupestres de Bhimbetka.",
+    "sort_order": 46
+  },
+  {
+    "id": "indus",
+    "parent_id": "sul-da-asia",
+    "name": "Vale do Indo",
+    "continent": "Sul da Ásia",
+    "latitude": 27,
+    "longitude": 68,
+    "summary": "Harappa, Mohenjo-daro.",
+    "sort_order": 47
+  },
+  {
+    "id": "india-sul",
+    "parent_id": "sul-da-asia",
+    "name": "Índia Meridional",
+    "continent": "Sul da Ásia",
+    "latitude": 12,
+    "longitude": 78,
+    "summary": "Chola, Vijayanagara, bronzes.",
+    "sort_order": 48
+  },
+  {
+    "id": "himalaia",
+    "parent_id": "sul-da-asia",
+    "name": "Himalaia",
+    "continent": "Sul da Ásia",
+    "latitude": 28,
+    "longitude": 85,
+    "summary": "Thangkas, mandalas, Newar.",
+    "sort_order": 49
+  },
+  {
+    "id": "china",
+    "parent_id": null,
+    "name": "China",
+    "continent": "China",
+    "latitude": 35,
+    "longitude": 105,
+    "summary": "Neolítico Yangshao ao contemporâneo.",
+    "sort_order": 50
+  },
+  {
+    "id": "china-norte",
+    "parent_id": "china",
+    "name": "Norte da China",
+    "continent": "China",
+    "latitude": 39,
+    "longitude": 116,
+    "summary": "Shang, Zhou, Han, Dunhuang.",
+    "sort_order": 51
+  },
+  {
+    "id": "china-sul",
+    "parent_id": "china",
+    "name": "Sul da China",
+    "continent": "China",
+    "latitude": 25,
+    "longitude": 113,
+    "summary": "Cerâmica, pintura letrada, jardins.",
+    "sort_order": 52
+  },
+  {
+    "id": "japao",
+    "parent_id": null,
+    "name": "Japão",
+    "continent": "Japão",
+    "latitude": 36,
+    "longitude": 138,
+    "summary": "Jōmon ao contemporâneo.",
+    "sort_order": 53
+  },
+  {
+    "id": "japao-arquipelago",
+    "parent_id": "japao",
+    "name": "Arquipélago japonês",
+    "continent": "Japão",
+    "latitude": 36,
+    "longitude": 138,
+    "summary": "Jōmon, Heian, Edo, Gutai.",
+    "sort_order": 54
+  },
+  {
+    "id": "ainu",
+    "parent_id": "japao",
+    "name": "Território Ainu",
+    "continent": "Japão",
+    "latitude": 43.2,
+    "longitude": 142.9,
+    "summary": "Têxteis attus, cosmologia kamuy.",
+    "sort_order": 55
+  },
+  {
+    "id": "coreia",
+    "parent_id": null,
+    "name": "Coreia",
+    "continent": "Coreia",
+    "latitude": 37,
+    "longitude": 127.5,
+    "summary": "Goguryeo, Goryeo, Joseon e contemporâneo.",
+    "sort_order": 56
+  },
+  {
+    "id": "coreia-peninsula",
+    "parent_id": "coreia",
+    "name": "Península Coreana",
+    "continent": "Coreia",
+    "latitude": 37,
+    "longitude": 127.5,
+    "summary": "Celadon, pintura minhwa, Dansaekhwa.",
+    "sort_order": 57
+  },
+  {
+    "id": "sudeste-asiatico",
+    "parent_id": null,
+    "name": "Sudeste Asiático",
+    "continent": "Sudeste Asiático",
+    "latitude": 5,
+    "longitude": 110,
+    "summary": "Arquipélagos e continente.",
+    "sort_order": 58
+  },
+  {
+    "id": "indonesia",
+    "parent_id": "sudeste-asiatico",
+    "name": "Indonésia",
+    "continent": "Sudeste Asiático",
+    "latitude": -2,
+    "longitude": 118,
+    "summary": "Sulawesi, Borobudur, batik, wayang.",
+    "sort_order": 59
+  },
+  {
+    "id": "indochina",
+    "parent_id": "sudeste-asiatico",
+    "name": "Indochina",
+    "continent": "Sudeste Asiático",
+    "latitude": 14,
+    "longitude": 104,
+    "summary": "Angkor, Champa, Sukhothai.",
+    "sort_order": 60
+  },
+  {
+    "id": "filipinas",
+    "parent_id": "sudeste-asiatico",
+    "name": "Filipinas",
+    "continent": "Sudeste Asiático",
+    "latitude": 13,
+    "longitude": 122,
+    "summary": "Tatuagem batok, ouro pré-colonial.",
+    "sort_order": 61
+  },
+  {
+    "id": "asia-central",
+    "parent_id": null,
+    "name": "Ásia Central",
+    "continent": "Ásia Central",
+    "latitude": 45,
+    "longitude": 68,
+    "summary": "Estepes, Rota da Seda, nômades.",
+    "sort_order": 62
+  },
+  {
+    "id": "estepes",
+    "parent_id": "asia-central",
+    "name": "Estepes eurasianas",
+    "continent": "Ásia Central",
+    "latitude": 48,
+    "longitude": 70,
+    "summary": "Citas, Pazyryk, arte animalista.",
+    "sort_order": 63
+  },
+  {
+    "id": "rota-da-seda",
+    "parent_id": "asia-central",
+    "name": "Rota da Seda",
+    "continent": "Ásia Central",
+    "latitude": 41,
+    "longitude": 65,
+    "summary": "Samarcanda, Bukhara, Gandhara.",
+    "sort_order": 64
+  },
+  {
+    "id": "siberia",
+    "parent_id": "asia-central",
+    "name": "Sibéria",
+    "continent": "Ásia Central",
+    "latitude": 62,
+    "longitude": 100,
+    "summary": "Xamanismo, Denisova, arte evenki.",
+    "sort_order": 65
+  },
+  {
+    "id": "oceania",
+    "parent_id": null,
+    "name": "Oceania",
+    "continent": "Oceania",
+    "latitude": -22,
+    "longitude": 145,
+    "summary": "Austrália e Pacífico insular.",
+    "sort_order": 66
+  },
+  {
+    "id": "aborigene",
+    "parent_id": "oceania",
+    "name": "Austrália aborígene",
+    "continent": "Oceania",
+    "latitude": -25,
+    "longitude": 133,
+    "summary": "Arnhem Land, Kimberley, Papunya.",
+    "sort_order": 67
+  },
+  {
+    "id": "maori",
+    "parent_id": "oceania",
+    "name": "Aotearoa / Māori",
+    "continent": "Oceania",
+    "latitude": -41,
+    "longitude": 174,
+    "summary": "Whakairo, tā moko, tukutuku.",
+    "sort_order": 68
+  },
+  {
+    "id": "polinesia",
+    "parent_id": "oceania",
+    "name": "Polinésia",
+    "continent": "Oceania",
+    "latitude": -17,
+    "longitude": -149,
+    "summary": "Tapa, tatuagem, Rapa Nui.",
+    "sort_order": 69
+  },
+  {
+    "id": "melanesia",
+    "parent_id": "oceania",
+    "name": "Melanésia",
+    "continent": "Oceania",
+    "latitude": -6,
+    "longitude": 147,
+    "summary": "Sepik, malanggan, máscaras.",
+    "sort_order": 70
+  },
+  {
+    "id": "micronesia",
+    "parent_id": "oceania",
+    "name": "Micronésia",
+    "continent": "Oceania",
+    "latitude": 7,
+    "longitude": 150,
+    "summary": "Navegação estelar, Nan Madol.",
+    "sort_order": 71
+  },
+  {
+    "id": "planetario",
+    "parent_id": null,
+    "name": "Planetário",
+    "continent": "Planetário",
+    "latitude": 0,
+    "longitude": 0,
+    "summary": "Fenômenos transregionais: migrações, redes, arte-ciência, digital.",
+    "sort_order": 72
+  },
+  {
+    "id": "redes-digitais",
+    "parent_id": "planetario",
+    "name": "Redes digitais",
+    "continent": "Planetário",
+    "latitude": 0,
+    "longitude": 0,
+    "summary": "Net art, software art, IA, arte generativa.",
+    "sort_order": 73
+  },
+  {
+    "id": "arte-ciencia",
+    "parent_id": "planetario",
+    "name": "Arte, ciência e tecnologia",
+    "continent": "Planetário",
+    "latitude": 0,
+    "longitude": 0,
+    "summary": "Bioarte, arte espacial, dados, clima.",
+    "sort_order": 74
+  }
+]
