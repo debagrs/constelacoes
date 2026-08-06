@@ -58,6 +58,10 @@ interface SearchEntity {
   date_display: string | null;
   continent: string | null;
   country: string | null;
+  culture: string | null;
+  source_url: string | null;
+  image_license: string | null;
+  metadata: string;
 }
 
 function AtlasEditor() {
@@ -105,9 +109,8 @@ function AtlasEditor() {
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const deletedCardIds = deletedIdsRef.current;
-      deletedIdsRef.current = [];
-      await saveAtlas({
+      const deletedCardIds = [...deletedIdsRef.current];
+      return await saveAtlas({
         data: {
           atlasId,
           title,
@@ -131,10 +134,15 @@ function AtlasEditor() {
         },
       });
     },
-    onSuccess: () => {
+    onSuccess: async (result) => {
+      deletedIdsRef.current = [];
       setDirty(false);
-      setLastSavedAt(new Date());
-      queryClient.invalidateQueries({ queryKey: ["my-atlases"] });
+      setLastSavedAt(new Date(result.savedAt));
+      toast.success(`Atlas salvo com ${result.totalCards} ${result.totalCards === 1 ? "cartão" : "cartões"}.`);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["my-atlases"] }),
+        queryClient.invalidateQueries({ queryKey: ["atlas", atlasId] }),
+      ]);
     },
     onError: (error: Error) => toast.error(`Falha ao salvar: ${error.message}`),
   });
@@ -206,11 +214,17 @@ function AtlasEditor() {
       card_type: "entity",
       entity_id: entity.id,
       title: entity.title,
-      body: [entity.subtitle, entity.date_display, entity.continent ?? entity.country]
+      body: [
+        entity.subtitle,
+        entity.date_display,
+        entity.culture,
+        entity.country ?? entity.continent,
+        entity.image_license,
+      ]
         .filter(Boolean)
         .join(" · "),
       media_url: entity.image_url,
-      link_url: `/acervo/${entity.id}`,
+      link_url: entity.source_url ?? `/acervo/${entity.id}`,
       x: position.x,
       y: position.y,
       width: 280,
@@ -400,7 +414,7 @@ function AtlasEditor() {
               </Button>
               <Button
                 onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending || !dirty}
+                disabled={saveMutation.isPending || !atlas}
               >
                 <Save className="h-4 w-4" />
                 {saveMutation.isPending ? "Salvando…" : "Salvar"}
@@ -531,16 +545,29 @@ function Mural({
                       className="mt-1 h-12 resize-none border-0 bg-transparent p-0 text-xs focus-visible:ring-0"
                       placeholder="Nota curatorial…"
                     />
-                    {card.entity_id && (
-                      <Link
-                        data-no-drag
-                        to="/acervo/$id"
-                        params={{ id: card.entity_id }}
-                        className="mt-1 inline-block text-[0.65rem] text-primary underline-offset-2 hover:underline"
-                      >
-                        Abrir ficha da obra
-                      </Link>
-                    )}
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                      {card.entity_id && (
+                        <Link
+                          data-no-drag
+                          to="/acervo/$id"
+                          params={{ id: card.entity_id }}
+                          className="inline-block text-[0.65rem] text-primary underline-offset-2 hover:underline"
+                        >
+                          Abrir ficha completa
+                        </Link>
+                      )}
+                      {card.link_url && /^https?:\/\//i.test(card.link_url) && (
+                        <a
+                          data-no-drag
+                          href={card.link_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-block text-[0.65rem] text-primary underline-offset-2 hover:underline"
+                        >
+                          Fonte original ↗
+                        </a>
+                      )}
+                    </div>
                   </div>
                 </div>
               ) : (
