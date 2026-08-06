@@ -36,7 +36,12 @@ async function fetchEntity(id: string) {
     direction: r.direction,
     entity: { id: r.id, title: r.title, entity_type: r.entity_type },
   }));
-  return { entity: result.entity, related, bibliography: result.bibliography };
+  return {
+    entity: result.entity,
+    related,
+    bibliography: result.bibliography,
+    sameArtistWorks: result.sameArtistWorks ?? [],
+  };
 }
 
 const LABELS: Record<string, string> = {
@@ -112,7 +117,7 @@ function EntityDetail() {
   }
   if (!data) return <ShellMessage title={t("acervo.empty")} />;
 
-  const { entity, related, bibliography } = data;
+  const { entity, related, bibliography, sameArtistWorks } = data;
   const metadata = (entity.metadata ?? {}) as Record<string, MetadataValue>;
   const coreMetadata: Array<[string, string | null]> = [
     ["Autoria / atribuição", entity.subtitle],
@@ -180,6 +185,71 @@ function EntityDetail() {
           </div>
         </div>
       </div>
+
+      {sameArtistWorks.length > 0 && (
+        <section className="mt-14">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-eyebrow text-muted-foreground">Constelação autoral</p>
+              <h2 className="mt-1 font-display text-2xl font-semibold text-foreground">
+                {entity.entity_type.toLowerCase() === "artista"
+                  ? `Obras de ${entity.title}`
+                  : "Mais obras do mesmo artista"}
+              </h2>
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {sameArtistWorks.length} {sameArtistWorks.length === 1 ? "registro" : "registros"}
+            </span>
+          </div>
+
+          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {sameArtistWorks.map((work) => (
+              <article key={work.id} className="group overflow-hidden rounded-xl border border-border/60 bg-card">
+                <Link to="/acervo/$id" params={{ id: work.id }} className="block">
+                  <div className="aspect-[4/3] overflow-hidden bg-secondary">
+                    {work.image_url ? (
+                      <img
+                        src={work.image_url}
+                        alt={work.title}
+                        loading="lazy"
+                        className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                      />
+                    ) : (
+                      <Placeholder title={work.title} />
+                    )}
+                  </div>
+                  <div className="p-4">
+                    <Badge variant="secondary" className="text-[0.65rem] uppercase">
+                      {labelForEntityType(work.entity_type)}
+                    </Badge>
+                    <h3 className="mt-2 font-display text-lg leading-tight text-foreground">
+                      {work.title}
+                    </h3>
+                    {work.subtitle && (
+                      <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">
+                        {work.subtitle}
+                      </p>
+                    )}
+                    <p className="mt-2 text-xs uppercase tracking-wider text-muted-foreground">
+                      {[work.date_display, work.country ?? work.culture].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
+                </Link>
+                {work.source_url && (
+                  <a
+                    href={work.source_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mx-4 mb-4 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                  >
+                    Fonte original <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                )}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="mt-14">
         <h2 className="font-display text-2xl font-semibold text-foreground">{t("acervo.detail.relations")}</h2>
