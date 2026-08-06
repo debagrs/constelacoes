@@ -199,3 +199,60 @@ export const deleteAtlas = createServerFn({ method: "POST" })
     await execute("DELETE FROM atlases WHERE id = ?", [data.atlasId]);
     return { ok: true };
   });
+
+/**
+ * Busca imagens do acervo para compor Atlas pessoais.
+ * Remove duplicatas no resultado e retorna somente entidades publicadas com imagem.
+ */
+export const searchAtlasEntities = createServerFn({ method: "GET" })
+  .inputValidator((d: unknown) =>
+    z.object({ query: z.string().trim().max(120).default("") }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    const { requireUser } = await import("@/lib/auth/session.server");
+    const { query } = await import("@/lib/turso/client.server");
+    await requireUser();
+
+    const term = data.query.trim();
+    const like = `%${term}%`;
+    return await query<{
+      id: string;
+      title: string;
+      subtitle: string | null;
+      entity_type: string;
+      image_url: string;
+      date_display: string | null;
+      continent: string | null;
+      country: string | null;
+    }>(
+      `WITH filtered AS (
+         SELECT
+           id, title, subtitle, entity_type, image_url, date_display,
+           continent, country, created_at,
+           ROW_NUMBER() OVER (
+             PARTITION BY lower(trim(image_url))
+             ORDER BY created_at ASC, id ASC
+           ) AS duplicate_rank
+         FROM entities
+         WHERE status = 'published'
+           AND image_url IS NOT NULL
+           AND trim(image_url) <> ''
+           AND (
+             ?1 = ''
+             OR title LIKE ?2 COLLATE NOCASE
+             OR COALESCE(subtitle, '') LIKE ?2 COLLATE NOCASE
+             OR COALESCE(tags, '') LIKE ?2 COLLATE NOCASE
+             OR COALESCE(themes, '') LIKE ?2 COLLATE NOCASE
+             OR COALESCE(culture, '') LIKE ?2 COLLATE NOCASE
+             OR COALESCE(country, '') LIKE ?2 COLLATE NOCASE
+           )
+       )
+       SELECT id, title, subtitle, entity_type, image_url,
+              date_display, continent, country
+       FROM filtered
+       WHERE duplicate_rank = 1
+       ORDER BY title COLLATE NOCASE ASC
+       LIMIT 60`,
+      [term, like],
+    );
+  });
