@@ -13,13 +13,50 @@ export type RegionNode = {
   total: number;
 };
 
+/**
+ * Evita repetir no front registros que representam a mesma imagem/entrada.
+ * Não apaga nada do Turso: escolhe um único registro canônico para exibição.
+ *
+ * Regra conservadora:
+ * - mesma URL de imagem + mesmo tipo de entidade; OU
+ * - mesma combinação título/subtítulo/data/tipo/país/cultura.
+ */
+const UNIQUE_ENTITY_PREDICATE = `
+  NOT EXISTS (
+    SELECT 1
+      FROM entities d
+     WHERE d.status = 'published'
+       AND d.id < e.id
+       AND (
+         (
+           e.image_url IS NOT NULL
+           AND TRIM(e.image_url) <> ''
+           AND d.image_url IS NOT NULL
+           AND TRIM(d.image_url) <> ''
+           AND LOWER(TRIM(d.image_url)) = LOWER(TRIM(e.image_url))
+           AND COALESCE(d.entity_type, '') = COALESCE(e.entity_type, '')
+         )
+         OR
+         (
+           LOWER(TRIM(COALESCE(d.title, ''))) = LOWER(TRIM(COALESCE(e.title, '')))
+           AND LOWER(TRIM(COALESCE(d.subtitle, ''))) = LOWER(TRIM(COALESCE(e.subtitle, '')))
+           AND COALESCE(d.date_display, '') = COALESCE(e.date_display, '')
+           AND COALESCE(d.entity_type, '') = COALESCE(e.entity_type, '')
+           AND LOWER(TRIM(COALESCE(d.country, ''))) = LOWER(TRIM(COALESCE(e.country, '')))
+           AND LOWER(TRIM(COALESCE(d.culture, ''))) = LOWER(TRIM(COALESCE(e.culture, '')))
+         )
+       )
+  )
+`;
+
 export const listRegions = createServerFn({ method: "GET" }).handler(async () => {
   const { query } = await import("@/lib/turso/client.server");
   return await query<RegionNode>(
     `SELECT r.id, r.parent_id, r.name, r.continent, r.latitude, r.longitude, r.summary,
             (SELECT COUNT(*) FROM entities e
               WHERE e.status = 'published'
-                AND (e.region_id = r.id OR e.region_id IN (SELECT id FROM regions WHERE parent_id = r.id))) AS total
+                AND (e.region_id = r.id OR e.region_id IN (SELECT id FROM regions WHERE parent_id = r.id))
+                AND ${UNIQUE_ENTITY_PREDICATE}) AS total
        FROM regions r
       ORDER BY r.sort_order ASC`,
   );
@@ -33,7 +70,8 @@ export const listFacets = createServerFn({ method: "GET" }).handler(async () => 
     `SELECT f.id, f.kind, f.name, f.summary,
             (SELECT COUNT(*) FROM entity_facets ef
                JOIN entities e ON e.id = ef.entity_id AND e.status = 'published'
-              WHERE ef.facet_id = f.id) AS total
+              WHERE ef.facet_id = f.id
+                AND ${UNIQUE_ENTITY_PREDICATE}) AS total
        FROM facets f
       ORDER BY f.kind ASC, f.name COLLATE NOCASE ASC`,
   );
@@ -71,7 +109,7 @@ export const exploreEntities = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => ExploreFilters.parse(d))
   .handler(async ({ data }) => {
     const { query } = await import("@/lib/turso/client.server");
-    const where: string[] = ["e.status = 'published'"];
+    const where: string[] = ["e.status = 'published'", UNIQUE_ENTITY_PREDICATE];
     const args: (string | number)[] = [];
 
     if (data.q?.trim()) {
@@ -135,6 +173,7 @@ export const getRegionOverview = createServerFn({ method: "GET" })
       `SELECT CAST(e.date_start / 500 AS INTEGER) * 500 AS bucket, COUNT(*) AS total
          FROM entities e
         WHERE e.status = 'published' AND e.date_start IS NOT NULL AND ${scope}
+          AND ${UNIQUE_ENTITY_PREDICATE}
         GROUP BY bucket ORDER BY bucket ASC`,
       [data.id],
     );
@@ -144,6 +183,7 @@ export const getRegionOverview = createServerFn({ method: "GET" })
               e.continent, e.country, e.culture, e.region_id, e.latitude, e.longitude
          FROM entities e
         WHERE e.status = 'published' AND ${scope}
+          AND ${UNIQUE_ENTITY_PREDICATE}
         ORDER BY (e.image_url IS NULL OR e.image_url = '') ASC, e.date_start ASC
         LIMIT 60`,
       [data.id],
@@ -155,13 +195,16 @@ export const getRegionOverview = createServerFn({ method: "GET" })
          JOIN facets f ON f.id = ef.facet_id
          JOIN entities e ON e.id = ef.entity_id AND e.status = 'published'
         WHERE ${scope}
+          AND ${UNIQUE_ENTITY_PREDICATE}
         GROUP BY f.id ORDER BY total DESC LIMIT 12`,
       [data.id],
     );
 
     const children = await query<RegionNode>(
       `SELECT r.id, r.parent_id, r.name, r.continent, r.latitude, r.longitude, r.summary,
-              (SELECT COUNT(*) FROM entities e WHERE e.status='published' AND e.region_id = r.id) AS total
+              (SELECT COUNT(*) FROM entities e
+                WHERE e.status='published' AND e.region_id = r.id
+                  AND ${UNIQUE_ENTITY_PREDICATE}) AS total
          FROM regions r WHERE r.parent_id = ? ORDER BY r.sort_order`,
       [data.id],
     );
@@ -169,30 +212,49 @@ export const getRegionOverview = createServerFn({ method: "GET" })
     return { region, timeline, items, facets, children };
   });
 
-/** Busca paginada de itens dentro de uma região (inclui sub-regiões). */
+/**
+ * Busca paginada da galeria do mapa.
+ * Pode trabalhar por região OU diretamente por continente. Assim os chips do topo
+ * já abrem a galeria sem exigir um segundo clique no mapa.
+ */
 export const searchRegionItems = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) =>
     z
       .object({
-        id: z.string().min(1),
+        id: z.string().min(1).optional(),
+        continent: z.string().min(1).optional(),
         q: z.string().optional(),
         types: z.array(z.string()).optional(),
         facets: z.array(z.string()).optional(),
         page: z.number().optional(),
         pageSize: z.number().optional(),
       })
+      .refine((value) => Boolean(value.id || value.continent), {
+        message: "Informe uma região ou continente.",
+      })
       .parse(d),
   )
   .handler(async ({ data }) => {
     const { query, queryOne } = await import("@/lib/turso/client.server");
     const page = Math.max(1, Math.floor(data.page ?? 1));
-    const pageSize = Math.min(48, Math.max(4, Math.floor(data.pageSize ?? 12)));
+    const pageSize = Math.min(48, Math.max(4, Math.floor(data.pageSize ?? 20)));
 
-    const where: string[] = [
-      "e.status = 'published'",
-      "(e.region_id = ? OR e.region_id IN (SELECT id FROM regions WHERE parent_id = ?))",
-    ];
-    const args: (string | number)[] = [data.id, data.id];
+    const where: string[] = ["e.status = 'published'", UNIQUE_ENTITY_PREDICATE];
+    const args: (string | number)[] = [];
+
+    if (data.id) {
+      where.push("(e.region_id = ? OR e.region_id IN (SELECT id FROM regions WHERE parent_id = ?))");
+      args.push(data.id, data.id);
+    } else if (data.continent) {
+      // Usa tanto o metadado da entidade quanto o continente cadastrado na região.
+      where.push(`(
+        LOWER(TRIM(COALESCE(e.continent, ''))) = LOWER(TRIM(?))
+        OR e.region_id IN (
+          SELECT id FROM regions WHERE LOWER(TRIM(continent)) = LOWER(TRIM(?))
+        )
+      )`);
+      args.push(data.continent, data.continent);
+    }
 
     const term = data.q?.trim();
     if (term) {
@@ -233,4 +295,3 @@ export const searchRegionItems = createServerFn({ method: "POST" })
 
     return { items, total, page, pageSize, pageCount: Math.max(1, Math.ceil(total / pageSize)) };
   });
-
