@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Menu, Moon, Sun, Globe } from "lucide-react";
+import { Menu, Moon, Sun, Globe, ShieldCheck } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme";
 import { useAuth } from "@/lib/auth";
@@ -28,13 +28,9 @@ function NavLinks({
     { to: "/rede", label: "Rede" },
     { to: "/colabore", label: "Contribua" },
     { to: "/atlas", label: t("nav.atlas") },
-    ...(showReviewer
-      ? [
-          { to: "/curadoria/imagens", label: "Curadoria de imagens" } as const,
-          { to: "/curadoria/contribuicoes", label: "Contribuições" } as const,
-        ]
-      : []),
+    ...(showReviewer ? [{ to: "/curadoria", label: "Curadoria" } as const] : []),
   ] as const;
+
   return (
     <>
       {links.map((l) => (
@@ -42,8 +38,9 @@ function NavLinks({
           key={l.to}
           to={l.to}
           onClick={onNavigate}
-          className="text-sm text-muted-foreground transition-colors hover:text-foreground [&.active]:text-foreground"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground [&.active]:text-foreground"
         >
+          {l.to === "/curadoria" && <ShieldCheck className="h-3.5 w-3.5" />}
           {l.label}
         </Link>
       ))}
@@ -51,13 +48,11 @@ function NavLinks({
   );
 }
 
-
 export function SiteHeader() {
   const { t, locale, setLocale } = useI18n();
   const { theme, toggleTheme } = useTheme();
   const { session, isReviewer } = useAuth();
   const [open, setOpen] = useState(false);
-
 
   const utility = (
     <div className="flex items-center gap-1">
@@ -70,17 +65,8 @@ export function SiteHeader() {
         <Globe className="h-4 w-4" />
         <span className="ml-1 text-xs uppercase">{locale}</span>
       </Button>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="Tema"
-        onClick={toggleTheme}
-      >
-        {theme === "dark" ? (
-          <Sun className="h-4 w-4" />
-        ) : (
-          <Moon className="h-4 w-4" />
-        )}
+      <Button variant="ghost" size="icon" aria-label="Tema" onClick={toggleTheme}>
+        {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
       </Button>
     </div>
   );
@@ -97,7 +83,6 @@ export function SiteHeader() {
           </span>
         </Link>
 
-        {/* Desktop */}
         <nav className="hidden items-center gap-6 md:flex">
           <NavLinks showReviewer={isReviewer} />
         </nav>
@@ -110,7 +95,6 @@ export function SiteHeader() {
           </Button>
         </div>
 
-        {/* Mobile */}
         <div className="flex items-center gap-1 md:hidden">
           {utility}
           <Sheet open={open} onOpenChange={setOpen}>
@@ -121,9 +105,7 @@ export function SiteHeader() {
             </SheetTrigger>
             <SheetContent side="right" className="w-72">
               <SheetHeader>
-                <SheetTitle className="font-display text-left">
-                  {t("app.name")}
-                </SheetTitle>
+                <SheetTitle className="font-display text-left">{t("app.name")}</SheetTitle>
               </SheetHeader>
               <nav className="mt-8 flex flex-col gap-5">
                 <NavLinks showReviewer={isReviewer} onNavigate={() => setOpen(false)} />
