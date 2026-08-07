@@ -22,6 +22,10 @@ export interface GraphLink extends SimulationLinkDatum<GraphNode> {
   relation_type: string;
   source: string | GraphNode;
   target: string | GraphNode;
+  description?: string | null;
+  confidence?: number | null;
+  provenance?: "registered" | "suggested";
+  evidence?: string[];
 }
 
 interface Props {
@@ -251,9 +255,16 @@ export function NetworkGraph({
                 x2={t.x}
                 y2={t.y}
                 stroke={relationColor(l.relation_type)}
-                strokeWidth={(hoverId ? 1.8 : 2.2) / transform.k}
-                strokeOpacity={dim ? 0.1 : 0.82}
-              />
+                strokeWidth={(l.provenance === "suggested" ? 1.5 : 2.5) / transform.k}
+                strokeOpacity={dim ? 0.08 : l.provenance === "suggested" ? 0.46 : 0.9}
+                strokeDasharray={l.provenance === "suggested" ? `${5 / transform.k} ${4 / transform.k}` : undefined}
+              >
+                <title>
+                  {`${labelForRelationType(l.relation_type)} · ${l.provenance === "suggested" ? "sugestão curatorial" : "relação registrada"}${l.description ? `
+${l.description}` : ""}${l.evidence?.length ? `
+Evidências: ${l.evidence.join("; ")}` : ""}`}
+                </title>
+              </line>
             );
           })}
           {/* Nodes */}
