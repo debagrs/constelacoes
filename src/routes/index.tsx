@@ -13,8 +13,13 @@ export const Route = createFileRoute("/")({
   component: Index,
 });
 
-async function fetchFeatured(): Promise<AcervoEntity[]> {
-  return (await listFeatured()) as AcervoEntity[];
+type FeaturedEntity = AcervoEntity & {
+  featured_category?: string;
+  featured_category_id?: string;
+};
+
+async function fetchFeatured(): Promise<FeaturedEntity[]> {
+  return (await listFeatured()) as FeaturedEntity[];
 }
 
 function Index() {
@@ -62,7 +67,7 @@ function Index() {
                 {t("home.featured")}
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                A cada entrada, uma nova amostra aleatória do acervo.
+                A cada entrada, uma nova constelação: um representante aleatório de cada perspectiva curatorial.
               </p>
             </div>
             <Link
@@ -74,12 +79,22 @@ function Index() {
             </Link>
           </div>
 
-          <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-3">
+          <div className="mt-8 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {isLoading
-              ? Array.from({ length: 6 }).map((_, i) => (
-                  <Skeleton key={i} className="aspect-[4/5] w-full rounded-lg" />
+              ? Array.from({ length: 7 }).map((_, i) => (
+                  <div key={i}>
+                    <Skeleton className="mb-2 h-4 w-28" />
+                    <Skeleton className="aspect-[4/5] w-full rounded-lg" />
+                  </div>
                 ))
-              : data?.map((e) => <EntityCard key={e.id} entity={e} />)}
+              : data?.map((e) => (
+                  <div key={`${e.featured_category_id ?? "acervo"}-${e.id}`}>
+                    <p className="mb-2 text-[0.66rem] font-semibold uppercase tracking-[0.16em] text-primary">
+                      {e.featured_category ?? "Acervo aberto"}
+                    </p>
+                    <EntityCard entity={e} />
+                  </div>
+                ))}
           </div>
         </section>
 
