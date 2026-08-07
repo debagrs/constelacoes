@@ -304,24 +304,31 @@ export const listEntitiesByTag = createServerFn({ method: "GET" })
 export const getNetwork = createServerFn({ method: "GET" }).handler(async () => {
   const { query } = await import("@/lib/turso/client.server");
 
-  const normalizeRelationType = (value: string) =>
+  const normalize = (value: string) =>
     value
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
       .trim()
       .toLowerCase()
-      .replace(/[\s-]+/g, "_")
-      .replace(/^influence$/, "influencia")
-      .replace(/^continuity$/, "continuidade")
-      .replace(/^survival$/, "sobrevivencia");
+      .replace(/[\s-]+/g, "_");
 
-  const rawLinks = await query<{
+  const normalizeRelationType = (value: string) => {
+    const type = normalize(value);
+    if (type === "influence") return "influencia";
+    if (type === "continuity") return "continuidade";
+    if (type === "survival") return "sobrevivencia";
+    return type;
+  };
+
+  const rawExplicit = await query<{
     id: string;
     source_id: string;
     target_id: string;
     relation_type: string;
+    description: string | null;
+    confidence: number | null;
   }>(
-    `SELECT id, source_id, target_id, relation_type
+    `SELECT id, source_id, target_id, relation_type, description, confidence
        FROM relations
       WHERE status = 'published'
         AND source_id IS NOT NULL
@@ -330,26 +337,235 @@ export const getNetwork = createServerFn({ method: "GET" }).handler(async () => 
         AND trim(target_id) <> ''`,
   );
 
-  const links = rawLinks.map((link) => ({
-    ...link,
-    relation_type: normalizeRelationType(link.relation_type),
-  }));
+  const entityRows = await query<{
+    id: string;
+    title: string;
+    subtitle: string | null;
+    entity_type: string;
+    date_start: number | null;
+    country: string | null;
+    continent: string | null;
+    culture: string | null;
+    tags: string;
+    themes: string;
+    materials: string;
+    techniques: string;
+    metadata: string;
+  }>(
+    `SELECT id, title, subtitle, entity_type, date_start, country, continent,
+            culture, tags, themes, materials, techniques, metadata
+       FROM entities
+      WHERE status = 'published'
+      ORDER BY CASE WHEN image_url IS NOT NULL AND trim(image_url) <> '' THEN 0 ELSE 1 END,
+               updated_at DESC`,
+  );
+
+  const motifRows = await query<{
+    entity_id: string;
+    motif_id: string;
+    motif_name: string;
+  }>(
+    `SELECT em.entity_id, em.motif_id, m.name AS motif_name
+       FROM entity_motifs em
+       JOIN motifs m ON m.id = em.motif_id
+       JOIN entities e ON e.id = em.entity_id
+      WHERE m.status = 'published' AND e.status = 'published'`,
+  );
+
+  const parseArray = (value: string | null | undefined): string[] => {
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed)
+        ? parsed.map((item) => String(item).trim()).filter(Boolean)
+        : [];
+    } catch {
+      return value.split(/[,;|]/).map((item) => item.trim()).filter(Boolean);
+    }
+  };
+
+  const motifsByEntity = new Map<string, string[]>();
+  for (const row of motifRows) {
+    const current = motifsByEntity.get(row.entity_id) ?? [];
+    current.push(row.motif_name);
+    motifsByEntity.set(row.entity_id, current);
+  }
+
+  const entities = entityRows.map((row) => {
+    const tokens = new Set<string>();
+    const add = (value: string | null | undefined, prefix = "") => {
+      if (!value) return;
+      const normalized = normalize(value);
+      if (normalized.length > 2) tokens.add(prefix + normalized);
+    };
+    for (const tag of parseArray(row.tags)) add(tag, "tag:");
+    for (const theme of parseArray(row.themes)) add(theme, "theme:");
+    for (const material of parseArray(row.materials)) add(material, "material:");
+    for (const technique of parseArray(row.techniques)) add(technique, "technique:");
+    for (const motif of motifsByEntity.get(row.id) ?? []) add(motif, "motif:");
+    add(row.country, "country:");
+    add(row.culture, "culture:");
+    return { ...row, tokens };
+  });
+
+  const entityById = new Map(entities.map((entity) => [entity.id, entity]));
+  const links: Array<{
+    id: string;
+    source_id: string;
+    target_id: string;
+    relation_type: string;
+    description: string | null;
+    confidence: number | null;
+    provenance: "registered" | "suggested";
+    evidence: string[];
+  }> = [];
+  const pairKeys = new Set<string>();
+
+  const pairKey = (a: string, b: string, type: string) =>
+    [a, b].sort().join("|") + "|" + type;
+
+  for (const relation of rawExplicit) {
+    if (!entityById.has(relation.source_id) || !entityById.has(relation.target_id)) continue;
+    const type = normalizeRelationType(relation.relation_type);
+    pairKeys.add(pairKey(relation.source_id, relation.target_id, type));
+    links.push({
+      ...relation,
+      relation_type: type,
+      provenance: "registered",
+      evidence: relation.description ? [relation.description] : [],
+    });
+  }
+
+  const buckets = new Map<string, string[]>();
+  for (const entity of entities) {
+    for (const token of entity.tokens) {
+      const bucket = buckets.get(token) ?? [];
+      if (bucket.length < 45) bucket.push(entity.id);
+      buckets.set(token, bucket);
+    }
+  }
+
+  const candidateEvidence = new Map<string, Set<string>>();
+  for (const [token, ids] of buckets) {
+    if (ids.length < 2 || ids.length > 45) continue;
+    for (let i = 0; i < ids.length; i += 1) {
+      for (let j = i + 1; j < ids.length; j += 1) {
+        const key = [ids[i], ids[j]].sort().join("|");
+        const evidence = candidateEvidence.get(key) ?? new Set<string>();
+        evidence.add(token);
+        candidateEvidence.set(key, evidence);
+      }
+    }
+  }
+
+  const degrees = new Map<string, number>();
+  for (const link of links) {
+    degrees.set(link.source_id, (degrees.get(link.source_id) ?? 0) + 1);
+    degrees.set(link.target_id, (degrees.get(link.target_id) ?? 0) + 1);
+  }
+
+  const scoredCandidates = Array.from(candidateEvidence.entries())
+    .map(([key, evidenceSet]) => {
+      const [sourceId, targetId] = key.split("|");
+      const source = entityById.get(sourceId);
+      const target = entityById.get(targetId);
+      if (!source || !target) return null;
+      const evidence = Array.from(evidenceSet);
+      const motifs = evidence.filter((item) => item.startsWith("motif:"));
+      const concepts = evidence.filter(
+        (item) => item.startsWith("tag:") || item.startsWith("theme:"),
+      );
+      const techniques = evidence.filter(
+        (item) => item.startsWith("material:") || item.startsWith("technique:"),
+      );
+      const dateGap =
+        source.date_start != null && target.date_start != null
+          ? Math.abs(source.date_start - target.date_start)
+          : null;
+      const score = motifs.length * 5 + concepts.length * 3 + techniques.length * 2 +
+        (evidence.some((item) => item.startsWith("culture:")) ? 1 : 0) +
+        (dateGap != null && dateGap <= 100 ? 1 : 0);
+      return { source, target, evidence, motifs, concepts, techniques, dateGap, score };
+    })
+    .filter((item): item is NonNullable<typeof item> => Boolean(item))
+    .filter((item) => item.score >= 5)
+    .sort((a, b) => b.score - a.score);
+
+  let suggestedCount = 0;
+  for (const candidate of scoredCandidates) {
+    if (suggestedCount >= 650) break;
+    const sourceDegree = degrees.get(candidate.source.id) ?? 0;
+    const targetDegree = degrees.get(candidate.target.id) ?? 0;
+    if (sourceDegree >= 7 || targetDegree >= 7) continue;
+
+    let relationType = "continuidade";
+    if (candidate.motifs.length > 0) relationType = "sobrevivencia";
+    else if (
+      candidate.concepts.length >= 3 &&
+      candidate.dateGap != null &&
+      candidate.dateGap > 0 &&
+      candidate.dateGap <= 180
+    ) {
+      relationType = "influencia";
+    }
+
+    const key = pairKey(candidate.source.id, candidate.target.id, relationType);
+    if (pairKeys.has(key)) continue;
+    pairKeys.add(key);
+
+    let sourceId = candidate.source.id;
+    let targetId = candidate.target.id;
+    if (
+      relationType === "influencia" &&
+      candidate.source.date_start != null &&
+      candidate.target.date_start != null &&
+      candidate.source.date_start > candidate.target.date_start
+    ) {
+      sourceId = candidate.target.id;
+      targetId = candidate.source.id;
+    }
+
+    const readableEvidence = candidate.evidence.slice(0, 5).map((item) => {
+      const [kind, ...rest] = item.split(":");
+      const label = rest.join(":").replace(/_/g, " ");
+      const kindLabel: Record<string, string> = {
+        motif: "motivo",
+        tag: "tag",
+        theme: "tema",
+        material: "material",
+        technique: "técnica",
+        culture: "cultura",
+        country: "território",
+      };
+      return `${kindLabel[kind] ?? kind}: ${label}`;
+    });
+
+    links.push({
+      id: `suggested:${sourceId}:${targetId}:${relationType}`,
+      source_id: sourceId,
+      target_id: targetId,
+      relation_type: relationType,
+      description:
+        relationType === "sobrevivencia"
+          ? "Sobrevivência visual sugerida por motivos recorrentes."
+          : relationType === "influencia"
+            ? "Possível influência sugerida por proximidade temporal e afinidades documentadas."
+            : "Continuidade curatorial sugerida por metadados compartilhados.",
+      confidence: Math.min(0.92, 0.48 + candidate.score * 0.035),
+      provenance: "suggested",
+      evidence: readableEvidence,
+    });
+    degrees.set(sourceId, sourceDegree + 1);
+    degrees.set(targetId, targetDegree + 1);
+    suggestedCount += 1;
+  }
 
   const connectedIds = Array.from(
     new Set(links.flatMap((link) => [link.source_id, link.target_id])),
   );
-
-  if (connectedIds.length === 0) return { nodes: [], links: [] };
-
-  const placeholders = connectedIds.map(() => "?").join(",");
-  const nodes = await query<{ id: string; title: string; entity_type: string }>(
-    `SELECT id, title, entity_type
-       FROM entities
-      WHERE status = 'published'
-        AND id IN (${placeholders})
-      ORDER BY title COLLATE NOCASE`,
-    connectedIds,
-  );
+  const nodes = entities
+    .filter((entity) => connectedIds.includes(entity.id))
+    .map(({ id, title, entity_type }) => ({ id, title, entity_type }));
 
   const validIds = new Set(nodes.map((node) => node.id));
   return {
