@@ -61,6 +61,8 @@ function MapaPage() {
     queryKey: ["region-overview", selectedId],
     queryFn: () => getRegionOverview({ data: { id: selectedId as string } }),
     enabled: !!selectedId,
+    staleTime: 2 * 60_000,
+    refetchOnWindowFocus: false,
   });
 
   const continents = useMemo(
@@ -384,6 +386,8 @@ function MapItems({
       }),
     enabled: Boolean(regionId || continent),
     placeholderData: (prev) => prev,
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
 
   const list = data?.items ?? (q || facet || continent ? [] : fallback.slice(0, pageSize));
