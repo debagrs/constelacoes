@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { z } from "zod";
@@ -33,7 +33,7 @@ export const Route = createFileRoute("/mapa")({
       {
         property: "og:description",
         content:
-          "Um mapa-múndi navegável de culturas visuais: regiões, territórios e obras da pré-história ao rococó.",
+          "Um mapa-múndi navegável de culturas visuais: regiões, territórios e obras da pré-história ao contemporâneo.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -47,6 +47,7 @@ function MapaPage() {
   const navigate = Route.useNavigate();
   const [continent, setContinent] = useState<string | null>(null);
   const [selectedFacet, setSelectedFacet] = useState<{ id: string; name: string } | null>(null);
+  const galleryRef = useRef<HTMLElement>(null);
 
   const { data: regions, isLoading } = useQuery({
     queryKey: ["regions"],
@@ -63,7 +64,7 @@ function MapaPage() {
   });
 
   const continents = useMemo(
-    () => Array.from(new Set((regions ?? []).map((r) => r.continent))).sort(),
+    () => Array.from(new Set((regions ?? []).map((r) => r.continent).filter(Boolean))).sort(),
     [regions],
   );
 
@@ -77,6 +78,33 @@ function MapaPage() {
     navigate({ search: (prev: { regiao?: string }) => ({ ...prev, regiao: id }) });
   };
 
+  const selectContinent = (value: string | null) => {
+    setSelectedFacet(null);
+    setContinent(value);
+    // Evita a situação em que "África" está selecionada mas o painel ainda mostra
+    // a última região europeia. O chip passa a ser uma seleção de acervo por si só.
+    navigate({ search: () => ({}) });
+  };
+
+  // Ao tocar em um continente, a galeria correspondente já aparece e recebe foco.
+  useEffect(() => {
+    if (!continent || selectedId) return;
+    const timer = window.setTimeout(() => {
+      galleryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [continent, selectedId]);
+
+  // O mesmo vale para as camadas/tag da região: um toque deve mostrar os itens,
+  // sem exigir novo clique no mapa.
+  useEffect(() => {
+    if (!selectedFacet) return;
+    const timer = window.setTimeout(() => {
+      galleryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [selectedFacet]);
+
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <SiteHeader />
@@ -88,15 +116,15 @@ function MapaPage() {
           </h1>
           <p className="mt-3 max-w-2xl text-sm text-muted-foreground">
             Cada ponto é uma região do acervo, dimensionada pela quantidade de itens
-            publicados. Use a roda do mouse para aproximar, arraste para deslocar e
-            clique para abrir o panorama da região.
+            publicados. Você também pode tocar diretamente nos territórios abaixo para
+            abrir a galeria correspondente.
           </p>
         </header>
 
         <div className="mb-4 flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => setContinent(null)}
+            onClick={() => selectContinent(null)}
             className={cn(
               "rounded-full border px-3 py-1 text-xs transition-colors",
               !continent
@@ -110,7 +138,7 @@ function MapaPage() {
             <button
               key={c}
               type="button"
-              onClick={() => setContinent(c === continent ? null : c)}
+              onClick={() => selectContinent(c === continent ? null : c)}
               className={cn(
                 "rounded-full border px-3 py-1 text-xs transition-colors",
                 continent === c
@@ -140,10 +168,12 @@ function MapaPage() {
               <div className="rounded-lg border border-border/60 bg-card/40 p-6">
                 <MapPin className="h-5 w-5 text-muted-foreground" />
                 <h2 className="mt-3 font-display text-lg text-foreground">
-                  Escolha uma região
+                  {continent ? `Explorando ${continent}` : "Escolha uma região"}
                 </h2>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Ou selecione na lista abaixo.
+                  {continent
+                    ? `A galeria de ${continent} já está aberta abaixo. Se quiser, escolha um ponto para restringir a uma região específica.`
+                    : "Selecione um território acima ou um ponto do mapa."}
                 </p>
                 <ul className="mt-4 max-h-72 space-y-1 overflow-y-auto pr-1">
                   {markers.map((r) => (
@@ -187,15 +217,16 @@ function MapaPage() {
           </aside>
         </div>
 
-        {overview && selectedId && (
-          <section className="mt-8 border-t border-border/60 pt-8">
-            <RegionItems
-              regionId={overview.region.id}
-              fallback={overview.items}
-              facet={selectedFacet}
+        {(overview && selectedId) || continent ? (
+          <section ref={galleryRef} className="mt-8 scroll-mt-24 border-t border-border/60 pt-8">
+            <MapItems
+              regionId={overview && selectedId ? overview.region.id : undefined}
+              continent={!selectedId ? continent ?? undefined : undefined}
+              fallback={overview && selectedId ? overview.items : []}
+              facet={selectedId ? selectedFacet : null}
             />
           </section>
-        )}
+        ) : null}
       </main>
       <SiteFooter />
     </div>
@@ -221,7 +252,7 @@ function RegionOverview({
   selectedFacet: { id: string; name: string } | null;
   onSelectFacet: (facet: { id: string; name: string }) => void;
 }) {
-  const { region, timeline, items, facets, children } = overview;
+  const { region, timeline, facets, children } = overview;
   const maxBucket = Math.max(1, ...timeline.map((t) => t.total));
 
   return (
@@ -308,12 +339,14 @@ function RegionOverview({
   );
 }
 
-function RegionItems({
+function MapItems({
   regionId,
+  continent,
   fallback,
   facet,
 }: {
-  regionId: string;
+  regionId?: string;
+  continent?: string;
   fallback: Overview["items"];
   facet: { id: string; name: string } | null;
 }) {
@@ -323,46 +356,51 @@ function RegionItems({
   const pageSize = 20;
 
   useEffect(() => {
-    const t = setTimeout(() => {
+    const t = window.setTimeout(() => {
       setQ(term.trim());
       setPage(1);
     }, 300);
-    return () => clearTimeout(t);
+    return () => window.clearTimeout(t);
   }, [term]);
 
   useEffect(() => {
     setTerm("");
     setQ("");
     setPage(1);
-  }, [regionId, facet?.id]);
+  }, [regionId, continent, facet?.id]);
 
   const { data, isFetching } = useQuery({
-    queryKey: ["region-items", regionId, facet?.id ?? null, q, page],
+    queryKey: ["map-items", regionId ?? null, continent ?? null, facet?.id ?? null, q, page],
     queryFn: () =>
       searchRegionItems({
         data: {
           id: regionId,
+          continent,
           q,
           facets: facet ? [facet.id] : undefined,
           page,
           pageSize,
         },
       }),
+    enabled: Boolean(regionId || continent),
     placeholderData: (prev) => prev,
   });
 
-  const list = data?.items ?? (q || facet ? [] : fallback.slice(0, pageSize));
+  const list = data?.items ?? (q || facet || continent ? [] : fallback.slice(0, pageSize));
   const pageCount = data?.pageCount ?? 1;
   const total = data?.total ?? fallback.length;
+  const heading = facet
+    ? `Camada: ${facet.name}`
+    : continent && !regionId
+      ? `Acervo visual: ${continent}`
+      : "Acervo visual da região";
 
   return (
     <div>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h3 className="text-eyebrow text-muted-foreground">Itens da região</h3>
-          <h2 className="mt-1 font-display text-2xl text-foreground">
-            {facet ? `Camada: ${facet.name}` : "Acervo visual da região"}
-          </h2>
+          <h3 className="text-eyebrow text-muted-foreground">Itens do acervo</h3>
+          <h2 className="mt-1 font-display text-2xl text-foreground">{heading}</h2>
         </div>
         <div className="flex items-center gap-3">
           {facet && (
@@ -376,7 +414,7 @@ function RegionItems({
         </div>
       </div>
 
-      <div className="relative mt-2">
+      <div className="relative mt-3">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={term}
@@ -388,7 +426,7 @@ function RegionItems({
 
       {list.length === 0 ? (
         <p className="mt-4 text-sm text-muted-foreground">
-          {isFetching ? "Buscando..." : "Nenhum item encontrado nesta região."}
+          {isFetching ? "Buscando..." : "Nenhum item encontrado para este recorte."}
         </p>
       ) : (
         <ul
@@ -410,12 +448,21 @@ function RegionItems({
                     alt={it.title}
                     loading="lazy"
                     className="aspect-[4/3] w-full object-cover transition-transform group-hover:scale-105"
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                      const fallbackNode = event.currentTarget.nextElementSibling as HTMLElement | null;
+                      fallbackNode?.classList.remove("hidden");
+                    }}
                   />
-                ) : (
-                  <div className="flex aspect-[4/3] items-center justify-center bg-muted/40 text-[10px] uppercase text-muted-foreground">
-                    {labelForEntityType(it.entity_type)}
-                  </div>
-                )}
+                ) : null}
+                <div
+                  className={cn(
+                    "aspect-[4/3] items-center justify-center bg-muted/40 px-3 text-center text-[10px] uppercase text-muted-foreground",
+                    it.image_url ? "hidden" : "flex",
+                  )}
+                >
+                  Imagem indisponível · {labelForEntityType(it.entity_type)}
+                </div>
                 <div className="p-2">
                   <p className="truncate text-xs text-foreground">{it.title}</p>
                   <p className="truncate text-[10px] text-muted-foreground">
@@ -429,7 +476,7 @@ function RegionItems({
       )}
 
       {pageCount > 1 && (
-        <div className="mt-3 flex items-center justify-between gap-2">
+        <div className="mt-4 flex items-center justify-between gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -460,4 +507,3 @@ function RegionItems({
     </div>
   );
 }
-
