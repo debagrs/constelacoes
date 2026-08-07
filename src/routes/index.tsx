@@ -20,15 +20,18 @@ async function fetchFeatured(): Promise<AcervoEntity[]> {
 function Index() {
   const { t } = useI18n();
   const { data, isLoading } = useQuery({
-    queryKey: ["featured-entities"],
+    queryKey: ["featured-entities", "random-home"],
     queryFn: fetchFeatured,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: false,
   });
 
   return (
     <div className="flex min-h-screen flex-col">
       <SiteHeader />
       <main className="flex-1">
-        {/* Hero */}
         <section className="border-b border-border/60">
           <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6 sm:py-28">
             <p className="text-eyebrow text-primary">{t("home.method.eyebrow")}</p>
@@ -52,7 +55,6 @@ function Index() {
           </div>
         </section>
 
-        {/* Featured */}
         <section className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
           <div className="flex items-end justify-between gap-4">
             <div>
@@ -60,7 +62,7 @@ function Index() {
                 {t("home.featured")}
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                {t("home.featured.sub")}
+                A cada entrada, uma nova amostra aleatória do acervo.
               </p>
             </div>
             <Link
@@ -81,7 +83,6 @@ function Index() {
           </div>
         </section>
 
-        {/* Method / pillars */}
         <section className="border-t border-border/60 bg-card/40">
           <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
             <h2 className="max-w-2xl font-display text-2xl font-semibold text-foreground sm:text-3xl">
