@@ -6,10 +6,10 @@ const metadataRecord = z.record(z.string(), z.union([z.string(), z.array(z.strin
 
 const submissionSchema = z.object({
   submissionType: z.enum(["obra","artista","projeto","movimento","conceito","objeto","arquitetura","design","performance","fotografia","filme","jogo","interface","outro"]),
-  title: z.string().trim().min(2).max(240),
+  title: z.string().trim().min(2, "Informe um título com pelo menos 2 caracteres.").max(240),
   artistName: z.string().trim().max(240).optional().default(""),
   subtitle: z.string().trim().max(300).optional().default(""),
-  description: z.string().trim().min(30).max(8000),
+  description: z.string().trim().min(30, "A descrição curatorial precisa ter pelo menos 30 caracteres.").max(8000, "A descrição curatorial está muito longa."),
   dateDisplay: z.string().trim().max(120).optional().default(""),
   location: z.string().trim().max(240).optional().default(""),
   country: z.string().trim().max(120).optional().default(""),
@@ -24,18 +24,37 @@ const submissionSchema = z.object({
   techniques: stringList,
   sensitiveMetadata: metadataRecord,
   poeticMetadata: metadataRecord,
-  submitterName: z.string().trim().min(2).max(160),
+  submitterName: z.string().trim().min(2, "Informe seu nome com pelo menos 2 caracteres.").max(160),
   submitterEmail: z.string().email().max(240),
   submitterRelation: z.string().trim().max(500).optional().default(""),
   consentPublication: z.literal(true),
 });
 
 export const submitContribution = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) => submissionSchema.parse(d))
+  .inputValidator((d: unknown) => {
+    const parsed = submissionSchema.safeParse(d);
+    if (!parsed.success) {
+      const first = parsed.error.issues[0];
+      throw new Error(first?.message ?? "Revise os campos obrigatórios do formulário.");
+    }
+    return parsed.data;
+  })
   .handler(async ({ data }) => {
     const { execute, nowIso } = await import("@/lib/turso/client.server");
     const { getSessionUser } = await import("@/lib/auth/session.server");
     const user = await getSessionUser();
+    const { queryOne } = await import("@/lib/turso/client.server");
+    const duplicate = await queryOne<{ id: string }>(
+      `SELECT id FROM submissions
+        WHERE lower(trim(title)) = lower(trim(?))
+          AND lower(trim(submitter_email)) = lower(trim(?))
+          AND status IN ('pending','needs_changes')
+        LIMIT 1`,
+      [data.title, data.submitterEmail],
+    );
+    if (duplicate) {
+      throw new Error("Esta contribuição já foi enviada e ainda está aguardando curadoria.");
+    }
     const id = crypto.randomUUID();
     const now = nowIso();
     await execute(
