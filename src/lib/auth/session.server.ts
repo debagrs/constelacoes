@@ -9,6 +9,24 @@ import { randomToken, sha256 } from "./password.server";
 export const SESSION_COOKIE = "atlas_session";
 const SESSION_DAYS = 30;
 
+const DEFAULT_CURATOR_EMAILS = [
+  "debora.gasparetto@ufsm.br",
+  "deboraaitagasparetto@gmail.com",
+];
+
+function curatorEmails(): Set<string> {
+  const configured = (process.env.CURATOR_EMAILS ?? "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+  return new Set(configured.length ? configured : DEFAULT_CURATOR_EMAILS);
+}
+
+export function isAuthorizedCuratorEmail(email: string): boolean {
+  return curatorEmails().has(email.trim().toLowerCase());
+}
+
+
 export interface SessionUser {
   id: string;
   email: string;
@@ -86,7 +104,13 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     id: row.user_id,
     email: row.email,
     displayName: row.display_name ?? null,
-    roles: roleRows.map((r) => r.role),
+    roles: (() => {
+      const roles = roleRows.map((r) => r.role);
+      const authorized = isAuthorizedCuratorEmail(row.email);
+      const safeRoles = authorized ? roles : roles.filter((r) => r !== "admin" && r !== "curador");
+      if (authorized && !safeRoles.includes("curador")) safeRoles.push("curador");
+      return safeRoles;
+    })(),
   };
 }
 
@@ -98,7 +122,8 @@ export async function requireUser(): Promise<SessionUser> {
 }
 
 export const isReviewer = (u: SessionUser) =>
-  u.roles.includes("admin") || u.roles.includes("curador");
+  isAuthorizedCuratorEmail(u.email) &&
+  (u.roles.includes("admin") || u.roles.includes("curador"));
 
 /** Usuário atual com papel de curadoria, ou 403. */
 export async function requireReviewer(): Promise<SessionUser> {
