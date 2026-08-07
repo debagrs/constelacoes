@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, ArrowRight, ExternalLink } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { getEntityDetail } from "@/lib/data/acervo.functions";
 import { useI18n } from "@/lib/i18n";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -8,22 +8,29 @@ import { SiteFooter } from "@/components/SiteFooter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { labelForEntityType, labelForRelationType } from "@/lib/constants";
+import {
+  labelForEntityType,
+  labelForRelationType,
+} from "@/lib/constants";
 
 export const Route = createFileRoute("/acervo/$id")({
   component: EntityDetail,
   errorComponent: DetailError,
-  notFoundComponent: () => <ShellMessage title="Obra não encontrada" />,
+  notFoundComponent: () => (
+    <ShellMessage title="Obra não encontrada" />
+  ),
 });
-
-type MetadataValue = string | number | boolean | null | MetadataValue[] | { [key: string]: MetadataValue };
 
 interface RelatedItem {
   relationId: string;
   relationType: string;
   description: string | null;
   direction: "out" | "in";
-  entity: { id: string; title: string; entity_type: string } | null;
+  entity: {
+    id: string;
+    title: string;
+    entity_type: string;
+  } | null;
 }
 
 async function fetchEntity(id: string) {
@@ -36,66 +43,9 @@ async function fetchEntity(id: string) {
     direction: r.direction,
     entity: { id: r.id, title: r.title, entity_type: r.entity_type },
   }));
-  return {
-    entity: result.entity,
-    related,
-    bibliography: result.bibliography,
-    sameArtistWorks: result.sameArtistWorks ?? [],
-  };
+  return { entity: result.entity, related, bibliography: result.bibliography };
 }
 
-const LABELS: Record<string, string> = {
-  creator: "Autoria",
-  artist: "Artista",
-  author: "Autoria",
-  institution: "Instituição",
-  collection: "Coleção",
-  accession_number: "Número de inventário",
-  object_type: "Tipo de objeto",
-  medium: "Meio",
-  dimensions: "Dimensões",
-  period: "Período",
-  movement: "Movimento",
-  genre: "Gênero",
-  people: "Povo/comunidade",
-  indigenous_people: "Povo indígena",
-  language: "Idioma",
-  latitude: "Latitude",
-  longitude: "Longitude",
-  provenance: "Proveniência",
-  proveniencia: "Proveniência curatorial",
-  revisao: "Última revisão",
-  licenca_texto: "Licença",
-  licenca_tipo: "Tipo de licença",
-  status_metadados: "Status dos metadados",
-  motherhood: "Maternidades e cuidado",
-  bioethics: "Bioética",
-  animal_relations: "Relações animais",
-  more_than_human: "Mais-que-humano",
-  decoloniality: "Perspectiva decolonial",
-  sensory_keywords: "Sensorialidades",
-  affective_keywords: "Afetos",
-};
-
-function humanize(key: string) {
-  return LABELS[key] ?? key.replace(/_/g, " ").replace(/^./, (letter) => letter.toUpperCase());
-}
-
-function valueToText(value: MetadataValue): string | null {
-  if (value == null || value === "") return null;
-  if (Array.isArray(value)) return value.map(valueToText).filter(Boolean).join(", ");
-  if (typeof value === "object") {
-    return Object.entries(value)
-      .map(([key, nested]) => {
-        const text = valueToText(nested);
-        return text ? `${humanize(key)}: ${text}` : null;
-      })
-      .filter(Boolean)
-      .join(" · ");
-  }
-  if (typeof value === "boolean") return value ? "Sim" : "Não";
-  return String(value);
-}
 
 function EntityDetail() {
   const { id } = Route.useParams();
@@ -103,6 +53,8 @@ function EntityDetail() {
   const { data, isLoading } = useQuery({
     queryKey: ["entity", id],
     queryFn: () => fetchEntity(id),
+    staleTime: 2 * 60_000,
+    refetchOnWindowFocus: false,
   });
 
   if (isLoading) {
@@ -110,156 +62,152 @@ function EntityDetail() {
       <Shell>
         <div className="grid gap-8 lg:grid-cols-2">
           <Skeleton className="aspect-[4/5] w-full rounded-lg" />
-          <div className="space-y-4"><Skeleton className="h-10 w-3/4" /><Skeleton className="h-4 w-1/2" /><Skeleton className="h-32 w-full" /></div>
+          <div className="space-y-4">
+            <Skeleton className="h-10 w-3/4" />
+            <Skeleton className="h-4 w-1/2" />
+            <Skeleton className="h-32 w-full" />
+          </div>
         </div>
       </Shell>
     );
   }
-  if (!data) return <ShellMessage title={t("acervo.empty")} />;
 
-  const { entity, related, bibliography, sameArtistWorks } = data;
-  const metadata = (entity.metadata ?? {}) as Record<string, MetadataValue>;
-  const coreMetadata: Array<[string, string | null]> = [
-    ["Autoria / atribuição", entity.subtitle],
-    ["Datação", entity.date_display],
-    ["Início", entity.date_start != null ? String(entity.date_start) : null],
-    ["Fim", entity.date_end != null ? String(entity.date_end) : null],
-    ["Localização", [entity.location, entity.country, entity.continent].filter(Boolean).join(", ") || null],
-    ["Cultura", entity.culture],
-    ["Materiais", entity.materials?.join(", ") || null],
-    ["Técnicas", entity.techniques?.join(", ") || null],
-    ["Cores", entity.colors?.join(", ") || null],
-    ["Licença da imagem", entity.image_license],
-    ["Imagem aberta", entity.open_image ? "Sim" : "Não"],
-    ["Identificador", entity.id],
+  if (!data) {
+    return <ShellMessage title={t("acervo.empty")} />;
+  }
+
+  const { entity, related, bibliography } = data;
+  const meta5 = (entity.metadata ?? {}) as {
+    proveniencia?: string;
+    revisao?: string;
+    licenca_texto?: string;
+    licenca_tipo?: string;
+    status_metadados?: string;
+  };
+
+
+  const meta: Array<[string, string | null]> = [
+    [t("acervo.detail.author"), entity.subtitle],
+    [t("acervo.detail.date"), entity.date_display],
+    [
+      t("acervo.detail.location"),
+      [entity.location, entity.country].filter(Boolean).join(", ") || null,
+    ],
+    [t("acervo.detail.culture"), entity.culture],
+    [t("acervo.detail.materials"), entity.materials?.join(", ") || null],
+    [t("acervo.detail.techniques"), entity.techniques?.join(", ") || null],
   ];
-  const extraMetadata = Object.entries(metadata)
-    .map(([key, value]) => [humanize(key), valueToText(value)] as [string, string | null])
-    .filter(([, value]) => Boolean(value));
-  const tags = Array.from(new Set([...(entity.tags ?? []), ...(entity.themes ?? [])])).filter(Boolean);
 
   return (
     <Shell>
-      <Link to="/acervo" className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> {t("nav.acervo")}
+      <Link
+        to="/acervo"
+        className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        {t("nav.acervo")}
       </Link>
 
       <div className="grid gap-10 lg:grid-cols-2">
         <div>
           <div className="overflow-hidden rounded-lg border border-border/60 bg-muted">
-            {entity.source_url ? (
-              <a href={entity.source_url} target="_blank" rel="noreferrer" title="Abrir fonte original">
-                {entity.image_url ? <img src={entity.image_url} alt={entity.title} className="w-full object-cover" /> : <Placeholder title={entity.title} />}
-              </a>
-            ) : entity.image_url ? <img src={entity.image_url} alt={entity.title} className="w-full object-cover" /> : <Placeholder title={entity.title} />}
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-            {entity.image_license && <span>Licença: {entity.image_license}</span>}
-            {entity.source_url && (
-              <a href={entity.source_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-primary hover:underline">
-                Abrir fonte original <ExternalLink className="h-3.5 w-3.5" />
-              </a>
+            {entity.image_url ? (
+              <img
+                src={entity.image_url}
+                alt={entity.title}
+                className="w-full object-cover"
+              />
+            ) : (
+              <div className="flex aspect-[4/5] items-center justify-center bg-secondary">
+                <span className="font-display text-6xl text-muted-foreground/40">
+                  {entity.title.charAt(0)}
+                </span>
+              </div>
             )}
           </div>
+          {entity.image_license && (
+            <p className="mt-2 text-eyebrow text-muted-foreground">
+              {t("acervo.detail.source")}: {entity.image_license}
+            </p>
+          )}
         </div>
 
         <div>
-          <Badge variant="secondary" className="uppercase tracking-wide">{labelForEntityType(entity.entity_type)}</Badge>
-          <h1 className="mt-3 font-display text-3xl font-semibold leading-tight text-foreground sm:text-4xl">{entity.title}</h1>
-          {entity.subtitle && <p className="mt-1 text-lg text-muted-foreground">{entity.subtitle}</p>}
-          {entity.description && <p className="mt-5 whitespace-pre-line leading-relaxed text-foreground/90">{entity.description}</p>}
-
-          {tags.length > 0 && (
-            <div className="mt-6 flex flex-wrap gap-2">
-              {tags.map((tag) => (
-                <Link key={tag} to="/tag/$tag" params={{ tag }} className="rounded-full border border-border bg-card px-3 py-1 text-xs transition hover:border-primary hover:text-primary">
-                  {tag}
-                </Link>
-              ))}
-            </div>
+          <Badge variant="secondary" className="uppercase tracking-wide">
+            {labelForEntityType(entity.entity_type)}
+          </Badge>
+          <h1 className="mt-3 font-display text-3xl font-semibold leading-tight text-foreground sm:text-4xl">
+            {entity.title}
+          </h1>
+          {entity.subtitle && (
+            <p className="mt-1 text-lg text-muted-foreground">
+              {entity.subtitle}
+            </p>
+          )}
+          {entity.description && (
+            <p className="mt-5 leading-relaxed text-foreground/90">
+              {entity.description}
+            </p>
           )}
 
+          {/* Metadata */}
           <div className="mt-8">
-            <h2 className="text-eyebrow text-muted-foreground">Ficha completa</h2>
-            <MetadataList rows={[...coreMetadata, ...extraMetadata]} />
+            <h2 className="text-eyebrow text-muted-foreground">
+              {t("acervo.detail.metadata")}
+            </h2>
+            <dl className="mt-3 divide-y divide-border/60">
+              {meta
+                .filter(([, v]) => v)
+                .map(([k, v]) => (
+                  <div key={k} className="grid grid-cols-3 gap-2 py-2 text-sm">
+                    <dt className="text-muted-foreground">{k}</dt>
+                    <dd className="col-span-2 text-foreground">{v}</dd>
+                  </div>
+                ))}
+            </dl>
           </div>
         </div>
       </div>
 
-      {sameArtistWorks.length > 0 && (
-        <section className="mt-14">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <p className="text-eyebrow text-muted-foreground">Constelação autoral</p>
-              <h2 className="mt-1 font-display text-2xl font-semibold text-foreground">
-                {entity.entity_type.toLowerCase() === "artista"
-                  ? `Obras de ${entity.title}`
-                  : "Mais obras do mesmo artista"}
-              </h2>
-            </div>
-            <span className="text-xs text-muted-foreground">
-              {sameArtistWorks.length} {sameArtistWorks.length === 1 ? "registro" : "registros"}
-            </span>
-          </div>
-
-          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {sameArtistWorks.map((work) => (
-              <article key={work.id} className="group overflow-hidden rounded-xl border border-border/60 bg-card">
-                <Link to="/acervo/$id" params={{ id: work.id }} className="block">
-                  <div className="aspect-[4/3] overflow-hidden bg-secondary">
-                    {work.image_url ? (
-                      <img
-                        src={work.image_url}
-                        alt={work.title}
-                        loading="lazy"
-                        className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
-                      />
-                    ) : (
-                      <Placeholder title={work.title} />
-                    )}
-                  </div>
-                  <div className="p-4">
-                    <Badge variant="secondary" className="text-[0.65rem] uppercase">
-                      {labelForEntityType(work.entity_type)}
-                    </Badge>
-                    <h3 className="mt-2 font-display text-lg leading-tight text-foreground">
-                      {work.title}
-                    </h3>
-                    {work.subtitle && (
-                      <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">
-                        {work.subtitle}
+      {/* Relations */}
+      <section className="mt-14">
+        <h2 className="font-display text-2xl font-semibold text-foreground">
+          {t("acervo.detail.relations")}
+        </h2>
+        {related.length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">
+            {t("acervo.detail.relations_empty")}
+          </p>
+        ) : (
+          <ul className="mt-5 grid gap-3 sm:grid-cols-2">
+            {related.map((r) => (
+              <li key={r.relationId}>
+                <Link
+                  to="/acervo/$id"
+                  params={{ id: r.entity?.id ?? "" }}
+                  disabled={!r.entity}
+                  className="flex items-start gap-3 rounded-lg border border-border/60 bg-card p-4 transition-colors hover:border-primary/50"
+                >
+                  <ArrowRight
+                    className={`mt-1 h-4 w-4 shrink-0 text-primary ${
+                      r.direction === "in" ? "rotate-180" : ""
+                    }`}
+                  />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-[0.65rem]">
+                        {labelForRelationType(r.relationType)}
+                      </Badge>
+                    </div>
+                    <p className="mt-1 font-display text-lg text-foreground">
+                      {r.entity?.title ?? "—"}
+                    </p>
+                    {r.description && (
+                      <p className="mt-0.5 text-sm text-muted-foreground">
+                        {r.description}
                       </p>
                     )}
-                    <p className="mt-2 text-xs uppercase tracking-wider text-muted-foreground">
-                      {[work.date_display, work.country ?? work.culture].filter(Boolean).join(" · ")}
-                    </p>
                   </div>
-                </Link>
-                {work.source_url && (
-                  <a
-                    href={work.source_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mx-4 mb-4 inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-                  >
-                    Fonte original <ExternalLink className="h-3.5 w-3.5" />
-                  </a>
-                )}
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <section className="mt-14">
-        <h2 className="font-display text-2xl font-semibold text-foreground">{t("acervo.detail.relations")}</h2>
-        {related.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">{t("acervo.detail.relations_empty")}</p> : (
-          <ul className="mt-5 grid gap-3 sm:grid-cols-2">
-            {related.map((relation) => (
-              <li key={relation.relationId}>
-                <Link to="/acervo/$id" params={{ id: relation.entity?.id ?? "" }} disabled={!relation.entity} className="flex items-start gap-3 rounded-lg border border-border/60 bg-card p-4 transition-colors hover:border-primary/50">
-                  <ArrowRight className={`mt-1 h-4 w-4 shrink-0 text-primary ${relation.direction === "in" ? "rotate-180" : ""}`} />
-                  <div className="min-w-0"><Badge variant="outline" className="text-[0.65rem]">{labelForRelationType(relation.relationType)}</Badge><p className="mt-1 font-display text-lg text-foreground">{relation.entity?.title ?? "—"}</p>{relation.description && <p className="mt-0.5 text-sm text-muted-foreground">{relation.description}</p>}</div>
                 </Link>
               </li>
             ))}
@@ -267,42 +215,139 @@ function EntityDetail() {
         )}
       </section>
 
-      <section className="mt-14">
-        <h2 className="font-display text-2xl font-semibold text-foreground">Referências bibliográficas</h2>
-        {bibliography.length === 0 ? <p className="mt-3 text-sm text-muted-foreground">Sem referências cadastradas.</p> : (
-          <ul className="mt-5 grid gap-3 md:grid-cols-2">
-            {bibliography.map((item) => <li key={item.id} className="rounded-lg border border-border/60 bg-card p-4"><p className="font-display text-base">{item.title}</p><p className="mt-1 text-sm text-muted-foreground">{[item.authors, item.year].filter(Boolean).join(" · ")}</p>{item.url && <a href={item.url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline">Abrir referência <ExternalLink className="h-3 w-3" /></a>}</li>)}
-          </ul>
-        )}
+      {/* Bibliografia + Proveniência */}
+      <section className="mt-14 grid gap-10 lg:grid-cols-[2fr_1fr]">
+        <div>
+          <h2 className="font-display text-2xl font-semibold text-foreground">
+            Referências bibliográficas
+          </h2>
+          {bibliography.length === 0 ? (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Sem referências cadastradas.
+            </p>
+          ) : (
+            <ul className="mt-5 space-y-3 text-sm">
+              {bibliography.map((b) => (
+                <li
+                  key={b.id}
+                  className="rounded-lg border border-border/60 bg-card p-4"
+                >
+                  <p className="font-display text-base text-foreground">
+                    {b.title}
+                  </p>
+                  <p className="mt-1 text-muted-foreground">
+                    {[b.authors, b.year].filter(Boolean).join(" · ")}
+                  </p>
+                  {b.url && (
+                    <a
+                      href={b.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1 inline-block text-xs text-primary underline-offset-4 hover:underline"
+                    >
+                      Fonte externa
+                    </a>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <aside className="rounded-lg border border-border/60 bg-card p-5">
+          <h3 className="text-eyebrow text-muted-foreground">
+            Proveniência
+          </h3>
+          <dl className="mt-3 space-y-2 text-sm">
+            <div>
+              <dt className="text-muted-foreground">Curadoria</dt>
+              <dd className="text-foreground">
+                {meta5.proveniencia ?? "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Última revisão</dt>
+              <dd className="text-foreground">{meta5.revisao ?? "—"}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Licença da imagem</dt>
+              <dd className="text-foreground">
+                {meta5.licenca_texto ?? "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Status dos metadados</dt>
+              <dd className="text-foreground capitalize">
+                {meta5.status_metadados ?? "—"}
+              </dd>
+            </div>
+          </dl>
+        </aside>
       </section>
 
       <div className="mt-12 flex flex-wrap gap-3">
-        <Button asChild><Link to="/rede" search={{ focus: entity.id }}>Ver na rede</Link></Button>
-        {entity.source_url && <Button asChild variant="outline"><a href={entity.source_url} target="_blank" rel="noreferrer">Fonte original <ExternalLink className="h-4 w-4" /></a></Button>}
-        <Button asChild variant="outline"><Link to="/atlas">Adicionar a um Atlas</Link></Button>
+
+        <Button asChild>
+          <Link to="/rede" search={{ focus: entity.id }}>
+            Ver na rede
+          </Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link to="/auth">{t("acervo.detail.add_to_atlas")}</Link>
+        </Button>
       </div>
     </Shell>
   );
 }
 
-function MetadataList({ rows }: { rows: Array<[string, string | null]> }) {
-  const visible = rows.filter(([, value]) => Boolean(value));
-  return <dl className="mt-3 divide-y divide-border/60">{visible.map(([label, value], index) => <div key={`${label}-${index}`} className="grid grid-cols-3 gap-3 py-2.5 text-sm"><dt className="text-muted-foreground">{label}</dt><dd className="col-span-2 break-words text-foreground">{value}</dd></div>)}</dl>;
-}
-
-function Placeholder({ title }: { title: string }) {
-  return <div className="flex aspect-[4/5] items-center justify-center bg-secondary"><span className="font-display text-6xl text-muted-foreground/40">{title.charAt(0)}</span></div>;
-}
-
 function Shell({ children }: { children: React.ReactNode }) {
-  return <div className="flex min-h-screen flex-col"><SiteHeader /><main className="mx-auto w-full max-w-6xl flex-1 px-4 py-10 sm:px-6">{children}</main><SiteFooter /></div>;
+  return (
+    <div className="flex min-h-screen flex-col">
+      <SiteHeader />
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-10 sm:px-6">
+        {children}
+      </main>
+      <SiteFooter />
+    </div>
+  );
 }
 
 function ShellMessage({ title }: { title: string }) {
-  return <Shell><div className="flex flex-col items-center justify-center py-24 text-center"><h1 className="font-display text-2xl font-semibold">{title}</h1><Button asChild className="mt-6" variant="outline"><Link to="/acervo"><ArrowLeft className="h-4 w-4" />Voltar ao acervo</Link></Button></div></Shell>;
+  return (
+    <Shell>
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <h1 className="font-display text-2xl font-semibold text-foreground">
+          {title}
+        </h1>
+        <Button asChild className="mt-6" variant="outline">
+          <Link to="/acervo">
+            <ArrowLeft className="h-4 w-4" />
+            Voltar ao acervo
+          </Link>
+        </Button>
+      </div>
+    </Shell>
+  );
 }
 
 function DetailError({ reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
-  return <Shell><div className="flex flex-col items-center justify-center py-24 text-center"><h1 className="font-display text-2xl font-semibold">Não foi possível carregar esta ficha.</h1><Button className="mt-6" onClick={() => { router.invalidate(); reset(); }}>Tentar novamente</Button></div></Shell>;
+  return (
+    <Shell>
+      <div className="flex flex-col items-center justify-center py-24 text-center">
+        <h1 className="font-display text-2xl font-semibold text-foreground">
+          Não foi possível carregar esta obra.
+        </h1>
+        <Button
+          className="mt-6"
+          onClick={() => {
+            router.invalidate();
+            reset();
+          }}
+        >
+          Tentar novamente
+        </Button>
+      </div>
+    </Shell>
+  );
 }
