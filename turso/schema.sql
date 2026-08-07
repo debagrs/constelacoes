@@ -354,3 +354,4 @@ CREATE INDEX IF NOT EXISTS idx_submissions_created ON submissions(created_at);
 CREATE INDEX IF NOT EXISTS idx_entities_image_url ON entities(image_url);
 CREATE INDEX IF NOT EXISTS idx_entities_status_type ON entities(status, entity_type);
 CREATE INDEX IF NOT EXISTS idx_entities_status_continent ON entities(status, continent);
+
