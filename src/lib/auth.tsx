@@ -55,7 +55,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { data, isLoading } = useQuery({
     queryKey: currentUserQueryKey,
     queryFn: () => fetchMe(),
-    staleTime: 60_000,
+    staleTime: 2 * 60_000,
+    refetchOnWindowFocus: false,
   });
 
   const user = (data as SessionUser | null) ?? null;
@@ -63,7 +64,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signInWithPassword = useCallback(
     async (email: string, password: string) => {
       await doSignIn({ data: { email, password } });
-      await queryClient.invalidateQueries();
+      // Não invalida o Atlas inteiro: só a sessão mudou.
+      await queryClient.invalidateQueries({ queryKey: currentUserQueryKey });
     },
     [doSignIn, queryClient],
   );
@@ -71,7 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUpWithPassword = useCallback(
     async (email: string, password: string, displayName: string) => {
       await doSignUp({ data: { email, password, displayName } });
-      await queryClient.invalidateQueries();
+      await queryClient.invalidateQueries({ queryKey: currentUserQueryKey });
     },
     [doSignUp, queryClient],
   );
@@ -79,7 +81,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     await doSignOut({});
     queryClient.setQueryData(currentUserQueryKey, null);
-    await queryClient.invalidateQueries();
+    // Remove somente dados privados da sessão anterior. O acervo público permanece em cache.
+    queryClient.removeQueries({ queryKey: ["my-atlases"] });
+    queryClient.removeQueries({ queryKey: ["atlas"] });
   }, [doSignOut, queryClient]);
 
   const value = useMemo<AuthContextValue>(() => {
