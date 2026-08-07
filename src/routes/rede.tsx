@@ -84,6 +84,8 @@ function RedePage() {
   const { data, isLoading } = useQuery({
     queryKey: ["rede"],
     queryFn: fetchRede,
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
   });
 
   const [active, setActive] = useState<Set<string> | null>(null);
