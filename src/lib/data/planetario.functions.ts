@@ -177,6 +177,7 @@ export const searchRegionItems = createServerFn({ method: "POST" })
         id: z.string().min(1),
         q: z.string().optional(),
         types: z.array(z.string()).optional(),
+        facets: z.array(z.string()).optional(),
         page: z.number().optional(),
         pageSize: z.number().optional(),
       })
@@ -202,6 +203,15 @@ export const searchRegionItems = createServerFn({ method: "POST" })
     if (data.types?.length) {
       where.push(`e.entity_type IN (${data.types.map(() => "?").join(",")})`);
       args.push(...data.types);
+    }
+    if (data.facets?.length) {
+      where.push(
+        `(SELECT COUNT(DISTINCT ef.facet_id)
+            FROM entity_facets ef
+           WHERE ef.entity_id = e.id
+             AND ef.facet_id IN (${data.facets.map(() => "?").join(",")})) = ?`,
+      );
+      args.push(...data.facets, data.facets.length);
     }
 
     const clause = where.join(" AND ");
