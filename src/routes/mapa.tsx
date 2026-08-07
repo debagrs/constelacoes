@@ -46,6 +46,7 @@ function MapaPage() {
   const { regiao } = Route.useSearch();
   const navigate = Route.useNavigate();
   const [continent, setContinent] = useState<string | null>(null);
+  const [selectedFacet, setSelectedFacet] = useState<{ id: string; name: string } | null>(null);
 
   const { data: regions, isLoading } = useQuery({
     queryKey: ["regions"],
@@ -71,8 +72,10 @@ function MapaPage() {
     [regions, continent],
   );
 
-  const select = (id: string) =>
+  const select = (id: string) => {
+    setSelectedFacet(null);
     navigate({ search: (prev: { regiao?: string }) => ({ ...prev, regiao: id }) });
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -169,11 +172,30 @@ function MapaPage() {
               <RegionOverview
                 overview={overview}
                 onSelectRegion={select}
-                onClear={() => navigate({ search: () => ({}) })}
+                onClear={() => {
+                  setSelectedFacet(null);
+                  navigate({ search: () => ({}) });
+                }}
+                selectedFacet={selectedFacet}
+                onSelectFacet={(facet) =>
+                  setSelectedFacet((current) =>
+                    current?.id === facet.id ? null : facet,
+                  )
+                }
               />
             )}
           </aside>
         </div>
+
+        {overview && selectedId && (
+          <section className="mt-8 border-t border-border/60 pt-8">
+            <RegionItems
+              regionId={overview.region.id}
+              fallback={overview.items}
+              facet={selectedFacet}
+            />
+          </section>
+        )}
       </main>
       <SiteFooter />
     </div>
@@ -190,10 +212,14 @@ function RegionOverview({
   overview,
   onSelectRegion,
   onClear,
+  selectedFacet,
+  onSelectFacet,
 }: {
   overview: Overview;
   onSelectRegion: (id: string) => void;
   onClear: () => void;
+  selectedFacet: { id: string; name: string } | null;
+  onSelectFacet: (facet: { id: string; name: string }) => void;
 }) {
   const { region, timeline, items, facets, children } = overview;
   const maxBucket = Math.max(1, ...timeline.map((t) => t.total));
@@ -260,18 +286,24 @@ function RegionOverview({
           <h3 className="text-eyebrow text-muted-foreground">Camadas presentes</h3>
           <div className="mt-2 flex flex-wrap gap-2">
             {facets.map((f) => (
-              <span
+              <button
                 key={f.id}
-                className="rounded-full bg-muted/60 px-3 py-1 text-xs text-muted-foreground"
+                type="button"
+                onClick={() => onSelectFacet({ id: f.id, name: f.name })}
+                aria-pressed={selectedFacet?.id === f.id}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-xs transition-colors",
+                  selectedFacet?.id === f.id
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-transparent bg-muted/60 text-muted-foreground hover:border-primary/50 hover:text-foreground",
+                )}
               >
                 {f.name} <span className="tabular-nums opacity-60">{f.total}</span>
-              </span>
+              </button>
             ))}
           </div>
         </div>
       )}
-
-      <RegionItems regionId={region.id} fallback={items} />
     </div>
   );
 }
@@ -279,14 +311,16 @@ function RegionOverview({
 function RegionItems({
   regionId,
   fallback,
+  facet,
 }: {
   regionId: string;
   fallback: Overview["items"];
+  facet: { id: string; name: string } | null;
 }) {
   const [term, setTerm] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
-  const pageSize = 12;
+  const pageSize = 20;
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -300,26 +334,46 @@ function RegionItems({
     setTerm("");
     setQ("");
     setPage(1);
-  }, [regionId]);
+  }, [regionId, facet?.id]);
 
   const { data, isFetching } = useQuery({
-    queryKey: ["region-items", regionId, q, page],
+    queryKey: ["region-items", regionId, facet?.id ?? null, q, page],
     queryFn: () =>
-      searchRegionItems({ data: { id: regionId, q, page, pageSize } }),
+      searchRegionItems({
+        data: {
+          id: regionId,
+          q,
+          facets: facet ? [facet.id] : undefined,
+          page,
+          pageSize,
+        },
+      }),
     placeholderData: (prev) => prev,
   });
 
-  const list = data?.items ?? (q ? [] : fallback.slice(0, pageSize));
+  const list = data?.items ?? (q || facet ? [] : fallback.slice(0, pageSize));
   const pageCount = data?.pageCount ?? 1;
   const total = data?.total ?? fallback.length;
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-2">
-        <h3 className="text-eyebrow text-muted-foreground">Itens da região</h3>
-        <span className="text-[10px] tabular-nums text-muted-foreground">
-          {total} {total === 1 ? "item" : "itens"}
-        </span>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h3 className="text-eyebrow text-muted-foreground">Itens da região</h3>
+          <h2 className="mt-1 font-display text-2xl text-foreground">
+            {facet ? `Camada: ${facet.name}` : "Acervo visual da região"}
+          </h2>
+        </div>
+        <div className="flex items-center gap-3">
+          {facet && (
+            <span className="rounded-full bg-primary/10 px-3 py-1 text-xs text-primary">
+              {facet.name}
+            </span>
+          )}
+          <span className="text-[10px] tabular-nums text-muted-foreground">
+            {total} {total === 1 ? "item" : "itens"}
+          </span>
+        </div>
       </div>
 
       <div className="relative mt-2">
@@ -339,7 +393,7 @@ function RegionItems({
       ) : (
         <ul
           className={cn(
-            "mt-3 grid grid-cols-2 gap-3 transition-opacity",
+            "mt-5 grid grid-cols-2 gap-4 transition-opacity sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5",
             isFetching && "opacity-60",
           )}
         >
@@ -355,10 +409,10 @@ function RegionItems({
                     src={it.image_url}
                     alt={it.title}
                     loading="lazy"
-                    className="h-24 w-full object-cover transition-transform group-hover:scale-105"
+                    className="aspect-[4/3] w-full object-cover transition-transform group-hover:scale-105"
                   />
                 ) : (
-                  <div className="flex h-24 items-center justify-center bg-muted/40 text-[10px] uppercase text-muted-foreground">
+                  <div className="flex aspect-[4/3] items-center justify-center bg-muted/40 text-[10px] uppercase text-muted-foreground">
                     {labelForEntityType(it.entity_type)}
                   </div>
                 )}
