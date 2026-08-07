@@ -91,7 +91,7 @@ function AuthPage() {
                   onChange={setPassword}
                 />
                 <Button type="submit" className="w-full" disabled={loading}>
-                  {t("auth.signin")}
+                  {loading ? "Entrando…" : t("auth.signin")}
                 </Button>
               </form>
             </TabsContent>
@@ -120,7 +120,7 @@ function AuthPage() {
                   onChange={setPassword}
                 />
                 <Button type="submit" className="w-full" disabled={loading}>
-                  {t("auth.signup")}
+                  {loading ? "Criando conta…" : t("auth.signup")}
                 </Button>
               </form>
             </TabsContent>
@@ -159,6 +159,7 @@ function Field({
         type={type}
         value={value}
         required
+        autoComplete={type === "password" ? "current-password" : type === "email" ? "email" : "name"}
         onChange={(e) => onChange(e.target.value)}
       />
     </div>
