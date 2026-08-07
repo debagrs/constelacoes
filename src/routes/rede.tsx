@@ -61,6 +61,10 @@ async function fetchRede(): Promise<RedeData> {
       source: r.source_id,
       target: r.target_id,
       relation_type: r.relation_type,
+      description: r.description,
+      confidence: r.confidence,
+      provenance: r.provenance,
+      evidence: r.evidence,
     }));
   const primary = ["continuidade", "influencia", "sobrevivencia"];
   const discovered = Array.from(new Set(links.map((l) => l.relation_type)));
@@ -83,18 +87,33 @@ function RedePage() {
   });
 
   const [active, setActive] = useState<Set<string> | null>(null);
+  const [showRegistered, setShowRegistered] = useState(true);
+  const [showSuggested, setShowSuggested] = useState(true);
   const activeSet = useMemo(() => {
     if (active) return active;
     return new Set(data?.availableTypes ?? (RELATION_TYPES as readonly string[]));
   }, [active, data?.availableTypes]);
 
+  const filteredLinks = useMemo(
+    () =>
+      (data?.links ?? []).filter((link) =>
+        link.provenance === "suggested" ? showSuggested : showRegistered,
+      ),
+    [data?.links, showRegistered, showSuggested],
+  );
+
   const relationCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const link of data?.links ?? []) {
+    for (const link of filteredLinks) {
       counts.set(link.relation_type, (counts.get(link.relation_type) ?? 0) + 1);
     }
     return counts;
-  }, [data?.links]);
+  }, [filteredLinks]);
+
+  const provenanceCounts = useMemo(() => ({
+    registered: (data?.links ?? []).filter((link) => link.provenance !== "suggested").length,
+    suggested: (data?.links ?? []).filter((link) => link.provenance === "suggested").length,
+  }), [data?.links]);
 
   const toggle = (type: string) => {
     const next = new Set(activeSet);
@@ -129,11 +148,35 @@ function RedePage() {
             Rede de relações
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Cada nó é uma entidade do acervo; cada linha é uma relação
-            registrada. Filtre por tipo de relação, arraste, aproxime e clique
-            em um nó para abrir sua ficha.
+            Cada nó é uma entidade do acervo. Linhas contínuas são relações registradas;
+            linhas tracejadas são sugestões curatoriais calculadas a partir de motivos,
+            tags, temas, materiais, técnicas, território e proximidade temporal. Sugestões
+            não afirmam influência histórica: servem para pesquisa e posterior curadoria.
           </p>
         </header>
+
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setShowRegistered((value) => !value)}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs",
+              showRegistered ? "bg-background text-foreground" : "opacity-50",
+            )}
+          >
+            <span className="h-0.5 w-6 bg-foreground" />
+            Registradas {provenanceCounts.registered}
+          </button>
+          <button
+            onClick={() => setShowSuggested((value) => !value)}
+            className={cn(
+              "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs",
+              showSuggested ? "bg-background text-foreground" : "opacity-50",
+            )}
+          >
+            <span className="w-6 border-t border-dashed border-foreground" />
+            Sugestões curatoriais {provenanceCounts.suggested}
+          </button>
+        </div>
 
         {/* Legend + filters */}
         <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -173,8 +216,8 @@ function RedePage() {
         {data && data.links.length > 0 && (
           <p className="mb-4 text-xs text-muted-foreground">
             Os filtros estão ativos: clique em uma categoria para ocultar ou exibir suas linhas.
-            A rede mostra somente entidades que possuem relações registradas, para que as
-            continuidades, influências e sobrevivências permaneçam legíveis.
+            A rede combina relações registradas e sugestões curatoriais. Passe o cursor
+            sobre uma linha para ver sua descrição e as evidências usadas na aproximação.
           </p>
         )}
 
@@ -207,7 +250,7 @@ function RedePage() {
         ) : (
           <NetworkGraph
             nodes={data.nodes}
-            links={data.links}
+            links={filteredLinks}
             focusId={search.focus ?? null}
             activeRelationTypes={activeSet}
             onSelect={handleSelect}
@@ -215,7 +258,7 @@ function RedePage() {
         )}
 
         <p className="mt-4 text-xs text-muted-foreground">
-          {data ? `${data.nodes.length} entidades · ${data.links.length} relações` : ""}
+          {data ? `${data.nodes.length} entidades · ${filteredLinks.length} relações visíveis (${provenanceCounts.registered} registradas e ${provenanceCounts.suggested} sugeridas)` : ""}
         </p>
       </main>
       <SiteFooter />
