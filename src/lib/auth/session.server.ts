@@ -1,41 +1,39 @@
 /**
- * Sessões próprias em cookie httpOnly, persistidas na tabela `sessions` do Turso.
- * Server-only.
+ * Sessões próprias em cookie httpOnly, persistidas no Turso.
+ * A curadoria falha fechada: exige e-mail explicitamente autorizado,
+ * e-mail verificado e papel admin/curador gravado no banco.
  */
 import { getCookie, setCookie, deleteCookie } from "@tanstack/react-start/server";
 import { execute, queryOne, nowIso } from "@/lib/turso/client.server";
 import { randomToken, sha256 } from "./password.server";
 
-export const SESSION_COOKIE = "atlas_session";
+export const SESSION_COOKIE = "__Host-atlas_session";
 const SESSION_DAYS = 30;
 
-const DEFAULT_CURATOR_EMAILS = [
-  "debora.gasparetto@ufsm.br",
-  "deboraaitagasparetto@gmail.com",
-];
-
 function curatorEmails(): Set<string> {
-  const configured = (process.env.CURATOR_EMAILS ?? "")
-    .split(",")
-    .map((email) => email.trim().toLowerCase())
-    .filter(Boolean);
-  return new Set(configured.length ? configured : DEFAULT_CURATOR_EMAILS);
+  return new Set(
+    (process.env.CURATOR_EMAILS ?? "")
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean),
+  );
 }
 
 export function isAuthorizedCuratorEmail(email: string): boolean {
+  // Sem CURATOR_EMAILS configurado, ninguém recebe acesso de curadoria.
   return curatorEmails().has(email.trim().toLowerCase());
 }
-
 
 export interface SessionUser {
   id: string;
   email: string;
+  emailVerified: boolean;
   displayName: string | null;
   roles: string[];
 }
 
 export async function createSession(userId: string): Promise<string> {
-  const token = randomToken();
+  const token = randomToken(32);
   const tokenHash = await sha256(token);
   const expiresAt = new Date(
     Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000,
@@ -50,7 +48,7 @@ export async function createSession(userId: string): Promise<string> {
   setCookie(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: true,
-    sameSite: "lax",
+    sameSite: "strict",
     path: "/",
     maxAge: SESSION_DAYS * 24 * 60 * 60,
   });
@@ -60,61 +58,53 @@ export async function createSession(userId: string): Promise<string> {
 export async function destroyCurrentSession() {
   const token = getCookie(SESSION_COOKIE);
   if (token) {
-    await execute("DELETE FROM sessions WHERE token_hash = ?", [
-      await sha256(token),
-    ]);
+    await execute("DELETE FROM sessions WHERE token_hash = ?", [await sha256(token)]);
   }
   deleteCookie(SESSION_COOKIE, { path: "/" });
 }
 
-/** Usuário atual ou null. Nunca lança. */
 export async function getSessionUser(): Promise<SessionUser | null> {
   const token = getCookie(SESSION_COOKIE);
   if (!token) return null;
+  const tokenHash = await sha256(token);
 
   const row = await queryOne<{
     user_id: string;
     email: string;
+    email_verified: number;
     expires_at: string;
     display_name: string | null;
   }>(
-    `SELECT s.user_id, s.expires_at, u.email, p.display_name
+    `SELECT s.user_id, s.expires_at, u.email, u.email_verified, p.display_name
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        LEFT JOIN profiles p ON p.id = s.user_id
       WHERE s.token_hash = ?`,
-    [await sha256(token)],
+    [tokenHash],
   );
   if (!row) return null;
 
   if (new Date(row.expires_at).getTime() < Date.now()) {
-    await execute("DELETE FROM sessions WHERE token_hash = ?", [
-      await sha256(token),
-    ]);
+    await execute("DELETE FROM sessions WHERE token_hash = ?", [tokenHash]);
+    deleteCookie(SESSION_COOKIE, { path: "/" });
     return null;
   }
 
-  const roleRows = await (
-    await import("@/lib/turso/client.server")
-  ).query<{ role: string }>("SELECT role FROM user_roles WHERE user_id = ?", [
-    row.user_id,
-  ]);
+  const { query } = await import("@/lib/turso/client.server");
+  const roleRows = await query<{ role: string }>(
+    "SELECT role FROM user_roles WHERE user_id = ?",
+    [row.user_id],
+  );
 
   return {
     id: row.user_id,
     email: row.email,
+    emailVerified: Boolean(row.email_verified),
     displayName: row.display_name ?? null,
-    roles: (() => {
-      const roles = roleRows.map((r) => r.role);
-      const authorized = isAuthorizedCuratorEmail(row.email);
-      const safeRoles = authorized ? roles : roles.filter((r) => r !== "admin" && r !== "curador");
-      if (authorized && !safeRoles.includes("curador")) safeRoles.push("curador");
-      return safeRoles;
-    })(),
+    roles: roleRows.map((r) => r.role),
   };
 }
 
-/** Usuário atual ou 401. */
 export async function requireUser(): Promise<SessionUser> {
   const user = await getSessionUser();
   if (!user) throw new Response("Unauthorized", { status: 401 });
@@ -122,10 +112,10 @@ export async function requireUser(): Promise<SessionUser> {
 }
 
 export const isReviewer = (u: SessionUser) =>
+  u.emailVerified &&
   isAuthorizedCuratorEmail(u.email) &&
   (u.roles.includes("admin") || u.roles.includes("curador"));
 
-/** Usuário atual com papel de curadoria, ou 403. */
 export async function requireReviewer(): Promise<SessionUser> {
   const user = await requireUser();
   if (!isReviewer(user)) throw new Response("Forbidden", { status: 403 });
