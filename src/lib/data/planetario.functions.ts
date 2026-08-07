@@ -31,14 +31,14 @@ const UNIQUE_ENTITY_PREDICATE = `
          (
            e.image_url IS NOT NULL
            AND TRIM(e.image_url) <> ''
-           AND d.image_url IS NOT NULL
-           AND TRIM(d.image_url) <> ''
-           AND LOWER(TRIM(d.image_url)) = LOWER(TRIM(e.image_url))
+           AND d.image_url = e.image_url
            AND COALESCE(d.entity_type, '') = COALESCE(e.entity_type, '')
          )
          OR
          (
-           LOWER(TRIM(COALESCE(d.title, ''))) = LOWER(TRIM(COALESCE(e.title, '')))
+           (e.image_url IS NULL OR TRIM(e.image_url) = '')
+           AND (d.image_url IS NULL OR TRIM(d.image_url) = '')
+           AND LOWER(TRIM(COALESCE(d.title, ''))) = LOWER(TRIM(COALESCE(e.title, '')))
            AND LOWER(TRIM(COALESCE(d.subtitle, ''))) = LOWER(TRIM(COALESCE(e.subtitle, '')))
            AND COALESCE(d.date_display, '') = COALESCE(e.date_display, '')
            AND COALESCE(d.entity_type, '') = COALESCE(e.entity_type, '')
@@ -51,14 +51,17 @@ const UNIQUE_ENTITY_PREDICATE = `
 
 export const listRegions = createServerFn({ method: "GET" }).handler(async () => {
   const { query } = await import("@/lib/turso/client.server");
-  return await query<RegionNode>(
-    `SELECT r.id, r.parent_id, r.name, r.continent, r.latitude, r.longitude, r.summary,
-            (SELECT COUNT(*) FROM entities e
-              WHERE e.status = 'published'
-                AND (e.region_id = r.id OR e.region_id IN (SELECT id FROM regions WHERE parent_id = r.id))
-                AND ${UNIQUE_ENTITY_PREDICATE}) AS total
-       FROM regions r
-      ORDER BY r.sort_order ASC`,
+  const { cachedPublic } = await import("@/lib/server-cache.server");
+  return cachedPublic("planetario:regions:v3", 5 * 60_000, async () =>
+    query<RegionNode>(
+      `SELECT r.id, r.parent_id, r.name, r.continent, r.latitude, r.longitude, r.summary,
+              (SELECT COUNT(*) FROM entities e
+                WHERE e.status = 'published'
+                  AND (e.region_id = r.id OR e.region_id IN (SELECT id FROM regions WHERE parent_id = r.id))
+                  AND ${UNIQUE_ENTITY_PREDICATE}) AS total
+         FROM regions r
+        ORDER BY r.sort_order ASC`,
+    ),
   );
 });
 
@@ -66,14 +69,17 @@ export type FacetRow = { id: string; kind: string; name: string; summary: string
 
 export const listFacets = createServerFn({ method: "GET" }).handler(async () => {
   const { query } = await import("@/lib/turso/client.server");
-  return await query<FacetRow>(
-    `SELECT f.id, f.kind, f.name, f.summary,
-            (SELECT COUNT(*) FROM entity_facets ef
-               JOIN entities e ON e.id = ef.entity_id AND e.status = 'published'
-              WHERE ef.facet_id = f.id
-                AND ${UNIQUE_ENTITY_PREDICATE}) AS total
-       FROM facets f
-      ORDER BY f.kind ASC, f.name COLLATE NOCASE ASC`,
+  const { cachedPublic } = await import("@/lib/server-cache.server");
+  return cachedPublic("planetario:facets:v2", 5 * 60_000, async () =>
+    query<FacetRow>(
+      `SELECT f.id, f.kind, f.name, f.summary,
+              (SELECT COUNT(*) FROM entity_facets ef
+                 JOIN entities e ON e.id = ef.entity_id AND e.status = 'published'
+                WHERE ef.facet_id = f.id
+                  AND ${UNIQUE_ENTITY_PREDICATE}) AS total
+         FROM facets f
+        ORDER BY f.kind ASC, f.name COLLATE NOCASE ASC`,
+    ),
   );
 });
 
@@ -161,55 +167,59 @@ export const getRegionOverview = createServerFn({ method: "GET" })
   .inputValidator((d: unknown) => z.object({ id: z.string().min(1) }).parse(d))
   .handler(async ({ data }) => {
     const { query, queryOne } = await import("@/lib/turso/client.server");
-    const region = await queryOne<RegionNode>(
-      "SELECT id, parent_id, name, continent, latitude, longitude, summary, 0 AS total FROM regions WHERE id = ?",
-      [data.id],
-    );
-    if (!region) return null;
+    const { cachedPublic } = await import("@/lib/server-cache.server");
 
-    const scope = `(e.region_id = ?1 OR e.region_id IN (SELECT id FROM regions WHERE parent_id = ?1))`;
+    return cachedPublic(`planetario:overview:v4:${data.id}`, 2 * 60_000, async () => {
+      const region = await queryOne<RegionNode>(
+        "SELECT id, parent_id, name, continent, latitude, longitude, summary, 0 AS total FROM regions WHERE id = ?",
+        [data.id],
+      );
+      if (!region) return null;
 
-    const timeline = await query<{ bucket: number; total: number }>(
-      `SELECT CAST(e.date_start / 500 AS INTEGER) * 500 AS bucket, COUNT(*) AS total
-         FROM entities e
-        WHERE e.status = 'published' AND e.date_start IS NOT NULL AND ${scope}
-          AND ${UNIQUE_ENTITY_PREDICATE}
-        GROUP BY bucket ORDER BY bucket ASC`,
-      [data.id],
-    );
+      const scope = `(e.region_id = ?1 OR e.region_id IN (SELECT id FROM regions WHERE parent_id = ?1))`;
 
-    const items = await query<ExploreItem>(
-      `SELECT e.id, e.title, e.subtitle, e.entity_type, e.image_url, e.date_display, e.date_start,
-              e.continent, e.country, e.culture, e.region_id, e.latitude, e.longitude
-         FROM entities e
-        WHERE e.status = 'published' AND ${scope}
-          AND ${UNIQUE_ENTITY_PREDICATE}
-        ORDER BY (e.image_url IS NULL OR e.image_url = '') ASC, e.date_start ASC
-        LIMIT 60`,
-      [data.id],
-    );
+      // Quatro leituras independentes em paralelo: menos latência e uma única serverFn.
+      const [timeline, items, facets, children] = await Promise.all([
+        query<{ bucket: number; total: number }>(
+          `SELECT CAST(e.date_start / 500 AS INTEGER) * 500 AS bucket, COUNT(*) AS total
+             FROM entities e
+            WHERE e.status = 'published' AND e.date_start IS NOT NULL AND ${scope}
+              AND ${UNIQUE_ENTITY_PREDICATE}
+            GROUP BY bucket ORDER BY bucket ASC`,
+          [data.id],
+        ),
+        query<ExploreItem>(
+          `SELECT e.id, e.title, e.subtitle, e.entity_type, e.image_url, e.date_display, e.date_start,
+                  e.continent, e.country, e.culture, e.region_id, e.latitude, e.longitude
+             FROM entities e
+            WHERE e.status = 'published' AND ${scope}
+              AND ${UNIQUE_ENTITY_PREDICATE}
+            ORDER BY (e.image_url IS NULL OR e.image_url = '') ASC, e.date_start ASC
+            LIMIT 60`,
+          [data.id],
+        ),
+        query<{ id: string; kind: string; name: string; total: number }>(
+          `SELECT f.id, f.kind, f.name, COUNT(*) AS total
+             FROM entity_facets ef
+             JOIN facets f ON f.id = ef.facet_id
+             JOIN entities e ON e.id = ef.entity_id AND e.status = 'published'
+            WHERE ${scope}
+              AND ${UNIQUE_ENTITY_PREDICATE}
+            GROUP BY f.id ORDER BY total DESC LIMIT 12`,
+          [data.id],
+        ),
+        query<RegionNode>(
+          `SELECT r.id, r.parent_id, r.name, r.continent, r.latitude, r.longitude, r.summary,
+                  (SELECT COUNT(*) FROM entities e
+                    WHERE e.status='published' AND e.region_id = r.id
+                      AND ${UNIQUE_ENTITY_PREDICATE}) AS total
+             FROM regions r WHERE r.parent_id = ? ORDER BY r.sort_order`,
+          [data.id],
+        ),
+      ]);
 
-    const facets = await query<{ id: string; kind: string; name: string; total: number }>(
-      `SELECT f.id, f.kind, f.name, COUNT(*) AS total
-         FROM entity_facets ef
-         JOIN facets f ON f.id = ef.facet_id
-         JOIN entities e ON e.id = ef.entity_id AND e.status = 'published'
-        WHERE ${scope}
-          AND ${UNIQUE_ENTITY_PREDICATE}
-        GROUP BY f.id ORDER BY total DESC LIMIT 12`,
-      [data.id],
-    );
-
-    const children = await query<RegionNode>(
-      `SELECT r.id, r.parent_id, r.name, r.continent, r.latitude, r.longitude, r.summary,
-              (SELECT COUNT(*) FROM entities e
-                WHERE e.status='published' AND e.region_id = r.id
-                  AND ${UNIQUE_ENTITY_PREDICATE}) AS total
-         FROM regions r WHERE r.parent_id = ? ORDER BY r.sort_order`,
-      [data.id],
-    );
-
-    return { region, timeline, items, facets, children };
+      return { region, timeline, items, facets, children };
+    });
   });
 
 /**
@@ -236,62 +246,74 @@ export const searchRegionItems = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const { query, queryOne } = await import("@/lib/turso/client.server");
+    const { cachedPublic, cacheKey } = await import("@/lib/server-cache.server");
     const page = Math.max(1, Math.floor(data.page ?? 1));
     const pageSize = Math.min(48, Math.max(4, Math.floor(data.pageSize ?? 20)));
+    const normalized = {
+      id: data.id ?? null,
+      continent: data.continent?.trim() ?? null,
+      q: data.q?.trim() ?? "",
+      types: [...(data.types ?? [])].sort(),
+      facets: [...(data.facets ?? [])].sort(),
+      page,
+      pageSize,
+    };
 
-    const where: string[] = ["e.status = 'published'", UNIQUE_ENTITY_PREDICATE];
-    const args: (string | number)[] = [];
+    return cachedPublic(cacheKey("planetario:map-items:v5", normalized), 60_000, async () => {
+      const where: string[] = ["e.status = 'published'", UNIQUE_ENTITY_PREDICATE];
+      const args: (string | number)[] = [];
 
-    if (data.id) {
-      where.push("(e.region_id = ? OR e.region_id IN (SELECT id FROM regions WHERE parent_id = ?))");
-      args.push(data.id, data.id);
-    } else if (data.continent) {
-      // Usa tanto o metadado da entidade quanto o continente cadastrado na região.
-      where.push(`(
-        LOWER(TRIM(COALESCE(e.continent, ''))) = LOWER(TRIM(?))
-        OR e.region_id IN (
-          SELECT id FROM regions WHERE LOWER(TRIM(continent)) = LOWER(TRIM(?))
-        )
-      )`);
-      args.push(data.continent, data.continent);
-    }
+      if (data.id) {
+        where.push("(e.region_id = ? OR e.region_id IN (SELECT id FROM regions WHERE parent_id = ?))");
+        args.push(data.id, data.id);
+      } else if (data.continent) {
+        where.push(`(
+          LOWER(TRIM(COALESCE(e.continent, ''))) = LOWER(TRIM(?))
+          OR e.region_id IN (
+            SELECT id FROM regions WHERE LOWER(TRIM(continent)) = LOWER(TRIM(?))
+          )
+        )`);
+        args.push(data.continent, data.continent);
+      }
 
-    const term = data.q?.trim();
-    if (term) {
-      where.push("(e.title LIKE ? OR e.subtitle LIKE ? OR e.culture LIKE ? OR e.country LIKE ?)");
-      const like = `%${term}%`;
-      args.push(like, like, like, like);
-    }
-    if (data.types?.length) {
-      where.push(`e.entity_type IN (${data.types.map(() => "?").join(",")})`);
-      args.push(...data.types);
-    }
-    if (data.facets?.length) {
-      where.push(
-        `(SELECT COUNT(DISTINCT ef.facet_id)
-            FROM entity_facets ef
-           WHERE ef.entity_id = e.id
-             AND ef.facet_id IN (${data.facets.map(() => "?").join(",")})) = ?`,
-      );
-      args.push(...data.facets, data.facets.length);
-    }
+      const term = data.q?.trim();
+      if (term) {
+        where.push("(e.title LIKE ? OR e.subtitle LIKE ? OR e.culture LIKE ? OR e.country LIKE ?)");
+        const like = `%${term}%`;
+        args.push(like, like, like, like);
+      }
+      if (data.types?.length) {
+        where.push(`e.entity_type IN (${data.types.map(() => "?").join(",")})`);
+        args.push(...data.types);
+      }
+      if (data.facets?.length) {
+        where.push(
+          `(SELECT COUNT(DISTINCT ef.facet_id)
+              FROM entity_facets ef
+             WHERE ef.entity_id = e.id
+               AND ef.facet_id IN (${data.facets.map(() => "?").join(",")})) = ?`,
+        );
+        args.push(...data.facets, data.facets.length);
+      }
 
-    const clause = where.join(" AND ");
-    const countRow = await queryOne<{ total: number }>(
-      `SELECT COUNT(*) AS total FROM entities e WHERE ${clause}`,
-      args,
-    );
-    const total = countRow?.total ?? 0;
+      const clause = where.join(" AND ");
+      const [countRow, items] = await Promise.all([
+        queryOne<{ total: number }>(
+          `SELECT COUNT(*) AS total FROM entities e WHERE ${clause}`,
+          args,
+        ),
+        query<ExploreItem>(
+          `SELECT e.id, e.title, e.subtitle, e.entity_type, e.image_url, e.date_display, e.date_start,
+                  e.continent, e.country, e.culture, e.region_id, e.latitude, e.longitude
+             FROM entities e
+            WHERE ${clause}
+            ORDER BY (e.image_url IS NULL OR e.image_url = '') ASC, e.date_start ASC, e.title COLLATE NOCASE ASC
+            LIMIT ? OFFSET ?`,
+          [...args, pageSize, (page - 1) * pageSize],
+        ),
+      ]);
 
-    const items = await query<ExploreItem>(
-      `SELECT e.id, e.title, e.subtitle, e.entity_type, e.image_url, e.date_display, e.date_start,
-              e.continent, e.country, e.culture, e.region_id, e.latitude, e.longitude
-         FROM entities e
-        WHERE ${clause}
-        ORDER BY (e.image_url IS NULL OR e.image_url = '') ASC, e.date_start ASC, e.title COLLATE NOCASE ASC
-        LIMIT ? OFFSET ?`,
-      [...args, pageSize, (page - 1) * pageSize],
-    );
-
-    return { items, total, page, pageSize, pageCount: Math.max(1, Math.ceil(total / pageSize)) };
+      const total = countRow?.total ?? 0;
+      return { items, total, page, pageSize, pageCount: Math.max(1, Math.ceil(total / pageSize)) };
+    });
   });
