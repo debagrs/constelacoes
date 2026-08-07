@@ -1,0 +1,49 @@
+name: Ampliar Atlas para 20 mil imagens
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_total:
+        description: "Total desejado de imagens únicas no Atlas"
+        required: true
+        default: "20000"
+      start_offset:
+        description: "Offset do Wikidata para retomar uma execução (normalmente 0)"
+        required: true
+        default: "0"
+
+concurrency:
+  group: atlas-ingest-wikidata
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - name: Baixar repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Garantir esquema e índices
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: npm run db:schema
+
+      - name: Ampliar acervo
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          ATLAS_TARGET_TOTAL: ${{ inputs.target_total }}
+          ATLAS_START_OFFSET: ${{ inputs.start_offset }}
+          ATLAS_PAGE: "250"
+        run: npm run ingest:20000
