@@ -1,7 +1,8 @@
 /**
  * Sessões próprias em cookie httpOnly, persistidas no Turso.
- * A curadoria falha fechada: exige e-mail explicitamente autorizado,
- * e-mail verificado e papel admin/curador gravado no banco.
+ * A curadoria falha fechada: exige e-mail explicitamente autorizado
+ * e papel admin/curador gravado no banco. Contas de curadoria não podem
+ * ser criadas pelo cadastro público; o papel é provisionado pelo servidor.
  */
 import { getCookie, setCookie, deleteCookie } from "@tanstack/react-start/server";
 import { execute, queryOne, nowIso } from "@/lib/turso/client.server";
@@ -95,13 +96,26 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     "SELECT role FROM user_roles WHERE user_id = ?",
     [row.user_id],
   );
+  const roles = roleRows.map((r) => r.role);
+
+  // Bootstrap seguro da curadoria: somente e-mails presentes em CURATOR_EMAILS,
+  // variável privada do servidor, podem receber automaticamente o papel curador.
+  // Isso corrige contas antigas criadas antes da implantação da área de curadoria.
+  if (isAuthorizedCuratorEmail(row.email) && !roles.includes("admin") && !roles.includes("curador")) {
+    await execute(
+      `INSERT OR IGNORE INTO user_roles (id, user_id, role, created_at)
+       VALUES (?, ?, 'curador', ?)`,
+      [crypto.randomUUID(), row.user_id, nowIso()],
+    );
+    roles.push("curador");
+  }
 
   return {
     id: row.user_id,
     email: row.email,
     emailVerified: Boolean(row.email_verified),
     displayName: row.display_name ?? null,
-    roles: roleRows.map((r) => r.role),
+    roles,
   };
 }
 
@@ -112,7 +126,6 @@ export async function requireUser(): Promise<SessionUser> {
 }
 
 export const isReviewer = (u: SessionUser) =>
-  u.emailVerified &&
   isAuthorizedCuratorEmail(u.email) &&
   (u.roles.includes("admin") || u.roles.includes("curador"));
 
