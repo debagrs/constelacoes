@@ -11,7 +11,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "db:schema": "node turso/apply-schema.mjs",
-    "db:restore-acervo": "node turso/restore-acervo-export.mjs"
+    "db:restore-acervo": "node turso/restore-acervo-export.mjs",
+    "ingest:20000": "node turso/ingest-wikidata-20000.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
