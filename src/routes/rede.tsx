@@ -62,9 +62,12 @@ async function fetchRede(): Promise<RedeData> {
       target: r.target_id,
       relation_type: r.relation_type,
     }));
-  const availableTypes = Array.from(
-    new Set(links.map((l) => l.relation_type)),
-  ).sort();
+  const primary = ["continuidade", "influencia", "sobrevivencia"];
+  const discovered = Array.from(new Set(links.map((l) => l.relation_type)));
+  const availableTypes = [
+    ...primary.filter((type) => discovered.includes(type)),
+    ...discovered.filter((type) => !primary.includes(type)).sort(),
+  ];
   return { nodes, links, availableTypes };
 }
 
@@ -82,8 +85,16 @@ function RedePage() {
   const [active, setActive] = useState<Set<string> | null>(null);
   const activeSet = useMemo(() => {
     if (active) return active;
-    return new Set(RELATION_TYPES as readonly string[]);
-  }, [active]);
+    return new Set(data?.availableTypes ?? (RELATION_TYPES as readonly string[]));
+  }, [active, data?.availableTypes]);
+
+  const relationCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const link of data?.links ?? []) {
+      counts.set(link.relation_type, (counts.get(link.relation_type) ?? 0) + 1);
+    }
+    return counts;
+  }, [data?.links]);
 
   const toggle = (type: string) => {
     const next = new Set(activeSet);
@@ -92,7 +103,8 @@ function RedePage() {
     setActive(next);
   };
 
-  const allOn = () => setActive(new Set(RELATION_TYPES as readonly string[]));
+  const allOn = () =>
+    setActive(new Set(data?.availableTypes ?? (RELATION_TYPES as readonly string[])));
   const allOff = () => setActive(new Set());
 
   const handleSelect = (node: GraphNode) => {
@@ -150,10 +162,21 @@ function RedePage() {
                   style={{ background: relationColor(type) }}
                 />
                 {labelForRelationType(type)}
+                <span className="tabular-nums text-[0.65rem] text-muted-foreground">
+                  {relationCounts.get(type) ?? 0}
+                </span>
               </button>
             );
           })}
         </div>
+
+        {data && data.links.length > 0 && (
+          <p className="mb-4 text-xs text-muted-foreground">
+            Os filtros estão ativos: clique em uma categoria para ocultar ou exibir suas linhas.
+            A rede mostra somente entidades que possuem relações registradas, para que as
+            continuidades, influências e sobrevivências permaneçam legíveis.
+          </p>
+        )}
 
         {search.focus && data && (
           <div className="mb-3 flex items-center justify-between rounded-md border border-border/60 bg-card px-3 py-2 text-xs">
