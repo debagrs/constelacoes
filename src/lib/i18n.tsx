@@ -160,7 +160,8 @@ const dictionaries = {
 
     "footer.about":
       "Uma infraestrutura aberta para pensar por imagens. Ensino, pesquisa e curadoria em cultura visual.",
-    "footer.rights": "Projeto acadêmico — UFSM",
+    "footer.rights":
+      "Criado e desenvolvido pela Profa. Dra. Débora Aita Gasparetto- Desenho Industrial/UFSM",
   },
   en: {
     "app.name": "Planetary Atlas",
@@ -298,7 +299,8 @@ const dictionaries = {
     "role.estudante": "Student",
     "footer.about":
       "An open infrastructure for thinking through images. Teaching, research and curation in visual culture.",
-    "footer.rights": "Academic project — UFSM",
+    "footer.rights":
+      "Created and developed by Prof. Dr. Débora Aita Gasparetto — Industrial Design/UFSM",
   },
 } as const;
 
