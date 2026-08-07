@@ -55,6 +55,10 @@ export const signUp = createServerFn({ method: "POST" })
     }
 
     const email = data.email;
+    const { isAuthorizedCuratorEmail } = await import("@/lib/auth/session.server");
+    if (isAuthorizedCuratorEmail(email)) {
+      throw new Error("Esta conta de curadoria não pode ser criada pelo cadastro público. Use Entrar ou Esqueci minha senha.");
+    }
     const existing = await queryOne<{ id: string }>(
       "SELECT id FROM users WHERE lower(email) = lower(?)",
       [email],
