@@ -43,10 +43,21 @@ interface RedeData {
   nodes: GraphNode[];
   links: GraphLink[];
   availableTypes: string[];
+  stats?: {
+    corpusEntities: number;
+    selectedEntities: number;
+    theoreticalAuthors: number;
+    concepts: number;
+    explicitRelations: number;
+    suggestedRelations: number;
+    mode: "overview" | "focused";
+  };
 }
 
-async function fetchRede(): Promise<RedeData> {
-  const { nodes: ents, links: rels } = await getNetwork();
+async function fetchRede(focus?: string): Promise<RedeData> {
+  const { nodes: ents, links: rels, stats } = await getNetwork({
+    data: { focus: focus ?? null },
+  });
 
   const nodes: GraphNode[] = ents.map((e) => ({
     id: e.id,
@@ -72,7 +83,7 @@ async function fetchRede(): Promise<RedeData> {
     ...primary.filter((type) => discovered.includes(type)),
     ...discovered.filter((type) => !primary.includes(type)).sort(),
   ];
-  return { nodes, links, availableTypes };
+  return { nodes, links, availableTypes, stats };
 }
 
 function RedePage() {
@@ -82,8 +93,8 @@ function RedePage() {
   const router = useRouter();
 
   const { data, isLoading } = useQuery({
-    queryKey: ["rede"],
-    queryFn: fetchRede,
+    queryKey: ["rede", search.focus ?? "overview"],
+    queryFn: () => fetchRede(search.focus),
     staleTime: 5 * 60_000,
     refetchOnWindowFocus: false,
   });
@@ -129,6 +140,18 @@ function RedePage() {
   const allOff = () => setActive(new Set());
 
   const handleSelect = (node: GraphNode) => {
+    const isTheoretical =
+      node.id.startsWith("theory:") || node.id.startsWith("concept:");
+
+    if (isTheoretical) {
+      navigate({
+        to: "/rede",
+        search: { focus: node.id },
+        replace: false,
+      });
+      return;
+    }
+
     router.navigate({
       to: "/acervo/$id",
       params: { id: node.id },
@@ -150,10 +173,11 @@ function RedePage() {
             Rede de relações
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Cada nó é uma entidade do acervo. Linhas contínuas são relações registradas;
-            linhas tracejadas são sugestões curatoriais calculadas a partir de motivos,
-            tags, temas, materiais, técnicas, território e proximidade temporal. Sugestões
-            não afirmam influência histórica: servem para pesquisa e posterior curadoria.
+            A rede é progressiva: não tenta desenhar milhares de obras ao mesmo tempo.
+            Obras, artistas, conceitos e autores teóricos formam constelações navegáveis.
+            Linhas contínuas são relações registradas; linhas tracejadas são aproximações
+            curatoriais calculadas a partir de motivos, temas, materiais, técnicas, territórios
+            e perspectivas teóricas. Influências sugeridas nunca são apresentadas como fato histórico.
           </p>
         </header>
 
@@ -218,8 +242,9 @@ function RedePage() {
         {data && data.links.length > 0 && (
           <p className="mb-4 text-xs text-muted-foreground">
             Os filtros estão ativos: clique em uma categoria para ocultar ou exibir suas linhas.
-            A rede combina relações registradas e sugestões curatoriais. Passe o cursor
-            sobre uma linha para ver sua descrição e as evidências usadas na aproximação.
+            Toque em um autor ou conceito para abrir uma nova constelação focalizada; toque
+            em uma obra ou artista para abrir sua ficha. Passe o cursor sobre uma linha para
+            ver a descrição e as evidências usadas na aproximação.
           </p>
         )}
 
@@ -260,7 +285,15 @@ function RedePage() {
         )}
 
         <p className="mt-4 text-xs text-muted-foreground">
-          {data ? `${data.nodes.length} entidades · ${filteredLinks.length} relações visíveis (${provenanceCounts.registered} registradas e ${provenanceCounts.suggested} sugeridas)` : ""}
+          {data
+            ? `${data.stats?.corpusEntities ?? data.nodes.length} registros no corpus · ${
+                data.stats?.selectedEntities ?? data.nodes.length
+              } obras/artistas neste recorte · ${data.stats?.theoreticalAuthors ?? 0} autores teóricos · ${
+                data.stats?.concepts ?? 0
+              } conceitos · ${filteredLinks.length} relações visíveis (${
+                provenanceCounts.registered
+              } registradas e ${provenanceCounts.suggested} curatoriais)`
+            : ""}
         </p>
       </main>
       <SiteFooter />
