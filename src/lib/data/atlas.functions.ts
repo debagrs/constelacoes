@@ -207,20 +207,62 @@ export const deleteAtlas = createServerFn({ method: "POST" })
 
 /**
  * Busca imagens do acervo para compor Atlas pessoais.
- * Remove duplicatas no resultado e retorna somente entidades publicadas com imagem.
+ *
+ * A consulta usa um vocabulário multilíngue expandido (sinônimos, singular/plural,
+ * técnicas, períodos, animais, plantas, perspectivas curatoriais etc.) e procura em
+ * campos livres e estruturados. A ampliação nunca cria metadados: apenas encontra
+ * registros em que algum termo equivalente já está documentado.
  */
 export const searchAtlasEntities = createServerFn({ method: "GET" })
   .inputValidator((d: unknown) =>
-    z.object({ query: z.string().trim().max(120).default("") }).parse(d),
+    z.object({ query: z.string().trim().max(160).default("") }).parse(d),
   )
   .handler(async ({ data }) => {
     const { requireUser } = await import("@/lib/auth/session.server");
     const { query } = await import("@/lib/turso/client.server");
+    const { expandSearchTerms } = await import("@/lib/search-dictionary");
     await requireUser();
 
     const term = data.query.trim();
-    const like = `%${term}%`;
-    return await query<{
+    const terms = term ? expandSearchTerms(term, 24) : [];
+    const args: string[] = [];
+
+    const searchableFields = [
+      "e.title",
+      "COALESCE(e.subtitle, '')",
+      "COALESCE(e.description, '')",
+      "COALESCE(e.tags, '')",
+      "COALESCE(e.themes, '')",
+      "COALESCE(e.culture, '')",
+      "COALESCE(e.country, '')",
+      "COALESCE(e.continent, '')",
+      "COALESCE(e.materials, '')",
+      "COALESCE(e.techniques, '')",
+      "COALESCE(e.metadata, '')",
+    ];
+
+    let searchClause = "1 = 1";
+    if (terms.length > 0) {
+      const groups = terms.map(() => {
+        const fieldChecks = searchableFields.map((field) => `${field} LIKE ? COLLATE NOCASE`);
+        fieldChecks.push(`EXISTS (
+          SELECT 1
+            FROM entity_motifs em
+            JOIN motifs m ON m.id = em.motif_id
+           WHERE em.entity_id = e.id
+             AND (m.name LIKE ? COLLATE NOCASE OR COALESCE(m.description, '') LIKE ? COLLATE NOCASE)
+        )`);
+        return `(${fieldChecks.join(" OR ")})`;
+      });
+      searchClause = `(${groups.join(" OR ")})`;
+      for (const searchTerm of terms) {
+        const like = `%${searchTerm}%`;
+        for (let i = 0; i < searchableFields.length; i += 1) args.push(like);
+        args.push(like, like);
+      }
+    }
+
+    const rows = await query<{
       id: string;
       title: string;
       subtitle: string | null;
@@ -236,32 +278,34 @@ export const searchAtlasEntities = createServerFn({ method: "GET" })
     }>(
       `WITH filtered AS (
          SELECT
-           id, title, subtitle, entity_type, image_url, date_display,
-           continent, country, culture, source_url, image_license, metadata, created_at,
+           e.id, e.title, e.subtitle, e.entity_type, e.image_url, e.date_display,
+           e.continent, e.country, e.culture, e.source_url, e.image_license, e.metadata, e.created_at,
            ROW_NUMBER() OVER (
-             PARTITION BY lower(trim(image_url))
-             ORDER BY created_at ASC, id ASC
+             PARTITION BY lower(trim(e.image_url))
+             ORDER BY e.created_at ASC, e.id ASC
            ) AS duplicate_rank
-         FROM entities
-         WHERE status = 'published'
-           AND image_url IS NOT NULL
-           AND trim(image_url) <> ''
-           AND (
-             ?1 = ''
-             OR title LIKE ?2 COLLATE NOCASE
-             OR COALESCE(subtitle, '') LIKE ?2 COLLATE NOCASE
-             OR COALESCE(tags, '') LIKE ?2 COLLATE NOCASE
-             OR COALESCE(themes, '') LIKE ?2 COLLATE NOCASE
-             OR COALESCE(culture, '') LIKE ?2 COLLATE NOCASE
-             OR COALESCE(country, '') LIKE ?2 COLLATE NOCASE
-           )
+         FROM entities e
+         WHERE e.status = 'published'
+           AND e.image_url IS NOT NULL
+           AND trim(e.image_url) <> ''
+           AND ${searchClause}
        )
        SELECT id, title, subtitle, entity_type, image_url,
               date_display, continent, country, culture, source_url, image_license, metadata
-       FROM filtered
-       WHERE duplicate_rank = 1
-       ORDER BY title COLLATE NOCASE ASC
-       LIMIT 60`,
-      [term, like],
+         FROM filtered
+        WHERE duplicate_rank = 1
+        ORDER BY
+          CASE
+            WHEN ? = '' THEN 2
+            WHEN lower(title) = lower(?) THEN 0
+            WHEN title LIKE ? COLLATE NOCASE THEN 1
+            ELSE 2
+          END,
+          title COLLATE NOCASE ASC
+        LIMIT 120`,
+      [...args, term, term, `%${term}%`],
     );
+
+    return rows;
   });
+
