@@ -1,14 +1,16 @@
-import { useState } from "react";
-import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
+import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, BookOpen, Cpu, ExternalLink, ImageOff } from "lucide-react";
 import { getEntityDetail } from "@/lib/data/acervo.functions";
+import { createAtlas, getAtlas, listMyAtlases, saveAtlas } from "@/lib/data/atlas.functions";
 import { useI18n } from "@/lib/i18n";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "sonner";
 import { labelForEntityType, labelForRelationType } from "@/lib/constants";
 import {
   getCuratorialReferenceGroups,
@@ -42,6 +44,232 @@ interface RelatedItem {
 interface SourceLink {
   label: string;
   url: string;
+}
+
+const IMAGE_KEYWORDS = [
+  "image",
+  "imagem",
+  "thumbnail",
+  "thumb",
+  "preview",
+  "iiif",
+  "media",
+  "arquivo",
+  "file",
+  "foto",
+  "jpeg",
+  "jpg",
+  "png",
+  "webp",
+  "gif",
+];
+
+function safeDecode(value: string) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function normalizeUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function isLikelyDirectImageUrl(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^https?:\/\//i.test(value.trim()) &&
+    /(\.(avif|gif|jpe?g|png|svg|webp)(\?.*)?$)|(?:iiif.*\/(full|max|pct:.*)\/.*\/(default|native)\.(jpg|png|webp))|(?:\/Special:(FilePath|Redirect\/file)\/)/i.test(
+      value.trim(),
+    )
+  );
+}
+
+function uniqueStrings(values: Array<string | null | undefined>) {
+  const seen = new Set<string>();
+  return values
+    .map((value) => normalizeUrl(value))
+    .filter((value): value is string => Boolean(value))
+    .filter((value) => {
+      const normalized = value.toLowerCase();
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+}
+
+function extractCommonsFileTitle(rawUrl: string | null | undefined): string | null {
+  const url = normalizeUrl(rawUrl);
+  if (!url) return null;
+  const decoded = safeDecode(url);
+  const fileMatch = decoded.match(/(?:\/wiki\/|title=)(File:[^?#]+)/i);
+  if (fileMatch?.[1]) return fileMatch[1].replace(/_/g, " ");
+
+  const uploadMatch = decoded.match(/\/(?:[0-9a-f]\/){2}([^/?#]+)$/i);
+  if (uploadMatch?.[1]) return `File:${safeDecode(uploadMatch[1]).replace(/_/g, " ")}`;
+
+  return null;
+}
+
+function commonsDirectCandidates(rawUrl: string | null | undefined) {
+  const fileTitle = extractCommonsFileTitle(rawUrl);
+  if (!fileTitle) return [];
+  const bareTitle = fileTitle.replace(/^File:/i, "");
+  return uniqueStrings([
+    `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(bareTitle)}`,
+    `https://commons.wikimedia.org/w/index.php?title=Special:Redirect/file/${encodeURIComponent(bareTitle)}`,
+  ]);
+}
+
+function extractWikipediaArticleInfo(rawUrl: string | null | undefined) {
+  const value = normalizeUrl(rawUrl);
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (!/wikipedia\.org$/i.test(url.hostname)) return null;
+    const wikiPath = url.pathname.match(/^\/wiki\/([^?#]+)/i);
+    const titleParam = url.searchParams.get("title");
+    const title = safeDecode((wikiPath?.[1] ?? titleParam ?? "").replace(/_/g, " "));
+    if (!title || /^File:/i.test(title) || /^Special:/i.test(title)) return null;
+    return { host: url.origin, title };
+  } catch {
+    return null;
+  }
+}
+
+function collectImageMetadataUrls(value: unknown, path: string[] = [], results: string[] = []): string[] {
+  if (typeof value === "string") {
+    const key = (path[path.length - 1] ?? "").toLowerCase();
+    if (isLikelyDirectImageUrl(value) || IMAGE_KEYWORDS.some((token) => key.includes(token))) {
+      results.push(value.trim());
+    }
+    return results;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((nested, index) => collectImageMetadataUrls(nested, [...path, String(index + 1)], results));
+    return results;
+  }
+  if (value && typeof value === "object") {
+    Object.entries(value as Record<string, unknown>).forEach(([key, nested]) =>
+      collectImageMetadataUrls(nested, [...path, key], results),
+    );
+  }
+  return results;
+}
+
+function buildImageCandidates(options: {
+  imageUrl?: string | null;
+  sourceUrl?: string | null;
+  metadata?: unknown;
+}) {
+  const metadataRecord = options.metadata && typeof options.metadata === "object" && !Array.isArray(options.metadata)
+    ? (options.metadata as Record<string, unknown>)
+    : {};
+
+  const metadataUrls = collectImageMetadataUrls(options.metadata);
+  const sourceLikeUrls = [
+    options.sourceUrl,
+    typeof metadataRecord.source_url === "string" ? metadataRecord.source_url : null,
+    typeof metadataRecord.object_url === "string" ? metadataRecord.object_url : null,
+    typeof metadataRecord.commons_url === "string" ? metadataRecord.commons_url : null,
+    typeof metadataRecord.image_page === "string" ? metadataRecord.image_page : null,
+    typeof metadataRecord.image_source === "string" ? metadataRecord.image_source : null,
+  ].filter(Boolean) as string[];
+
+  const derivedCommons = sourceLikeUrls.flatMap((url) => commonsDirectCandidates(url));
+
+  return uniqueStrings([options.imageUrl, ...metadataUrls, ...derivedCommons]);
+}
+
+async function resolveCommonsOriginal(rawUrl: string): Promise<string | null> {
+  const fileTitle = extractCommonsFileTitle(rawUrl);
+  if (!fileTitle) return null;
+  const endpoint = `https://commons.wikimedia.org/w/api.php?action=query&prop=imageinfo&iiprop=url&titles=${encodeURIComponent(
+    fileTitle,
+  )}&format=json&origin=*`;
+  try {
+    const response = await fetch(endpoint);
+    if (!response.ok) return null;
+    const data = (await response.json()) as {
+      query?: {
+        pages?: Record<string, { imageinfo?: Array<{ url?: string }> }>;
+      };
+    };
+    const pages = data.query?.pages ?? {};
+    for (const page of Object.values(pages)) {
+      const url = page.imageinfo?.[0]?.url;
+      if (isLikelyDirectImageUrl(url)) return url;
+    }
+  } catch {}
+  return null;
+}
+
+async function resolveWikipediaOriginal(rawUrl: string): Promise<string | null> {
+  const info = extractWikipediaArticleInfo(rawUrl);
+  if (!info) return null;
+  const endpoint = `${info.host}/w/api.php?action=query&prop=pageimages&piprop=original&titles=${encodeURIComponent(
+    info.title,
+  )}&format=json&origin=*`;
+  try {
+    const response = await fetch(endpoint);
+    if (!response.ok) return null;
+    const data = (await response.json()) as {
+      query?: {
+        pages?: Record<string, { original?: { source?: string } }>;
+      };
+    };
+    const pages = data.query?.pages ?? {};
+    for (const page of Object.values(pages)) {
+      const url = page.original?.source;
+      if (isLikelyDirectImageUrl(url)) return url;
+    }
+  } catch {}
+  return null;
+}
+
+function useResolvedImageCandidates(options: {
+  imageUrl?: string | null;
+  sourceUrl?: string | null;
+  metadata?: unknown;
+}) {
+  const metadataHash = JSON.stringify(options.metadata ?? null);
+  const initialCandidates = useMemo(
+    () => buildImageCandidates(options),
+    [options.imageUrl, options.sourceUrl, metadataHash],
+  );
+  const [candidates, setCandidates] = useState<string[]>(initialCandidates);
+
+  useEffect(() => {
+    setCandidates(initialCandidates);
+  }, [initialCandidates]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function enrich() {
+      const baseUrls = uniqueStrings([options.imageUrl, options.sourceUrl]);
+      const resolved = uniqueStrings(
+        (await Promise.all(
+          baseUrls.flatMap((url) => [resolveCommonsOriginal(url), resolveWikipediaOriginal(url)]),
+        )) as Array<string | null>,
+      );
+
+      if (!cancelled && resolved.length > 0) {
+        setCandidates((current) => uniqueStrings([...current, ...resolved]));
+      }
+    }
+
+    void enrich();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [options.imageUrl, options.sourceUrl]);
+
+  return candidates;
 }
 
 async function fetchEntity(id: string) {
@@ -223,12 +451,19 @@ function uniqueSourceLinks(
 function EntityDetail() {
   const { id } = Route.useParams();
   const { t } = useI18n();
+  const navigate = useNavigate();
+  const [resolvedImageUrl, setResolvedImageUrl] = useState<string | null>(null);
+  const [addingToAtlas, setAddingToAtlas] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ["entity", id],
     queryFn: () => fetchEntity(id),
     staleTime: 2 * 60_000,
     refetchOnWindowFocus: false,
   });
+
+  useEffect(() => {
+    setResolvedImageUrl(null);
+  }, [id]);
 
   if (isLoading) {
     return (
@@ -284,6 +519,112 @@ function EntityDetail() {
   const curatorialReferences = getCuratorialReferenceGroups(entity);
   const techniqueTechnologyReferences = getTechniqueTechnologyReferenceGroups(entity);
 
+  const addCurrentEntityToAtlas = async () => {
+    if (addingToAtlas) return;
+    setAddingToAtlas(true);
+
+    try {
+      let atlases = await listMyAtlases();
+      let targetAtlasId = atlases[0]?.id ?? null;
+
+      if (!targetAtlasId) {
+        const created = await createAtlas({
+          data: { title: "Meu Atlas visual", description: "" },
+        });
+        targetAtlasId = created.id;
+        atlases = await listMyAtlases();
+      }
+
+      const atlasData = await getAtlas({ data: { atlasId: targetAtlasId } });
+      if (!atlasData?.atlas) throw new Error("Não foi possível abrir o Atlas de destino.");
+
+      const mediaUrl = resolvedImageUrl ?? entity.image_url ?? null;
+      if (!mediaUrl) {
+        toast.error("Esta ficha ainda não possui uma imagem incorporável para adicionar ao Atlas.");
+        return;
+      }
+
+      const existingCards = atlasData.cards ?? [];
+      const alreadyAdded = existingCards.some(
+        (card) => card.entity_id === entity.id || card.media_url === mediaUrl,
+      );
+
+      if (!alreadyAdded) {
+        const index = existingCards.length;
+        const newCard = {
+          id: crypto.randomUUID(),
+          card_type: "entity",
+          entity_id: entity.id,
+          title: entity.title,
+          body: [
+            entity.subtitle,
+            entity.date_display,
+            entity.culture,
+            entity.country ?? entity.continent,
+            entity.image_license,
+          ].filter(Boolean).join(" · "),
+          media_url: mediaUrl,
+          link_url: `/acervo/${entity.id}`,
+          x: 40 + (index % 5) * 42,
+          y: 40 + (index % 7) * 38,
+          width: 280,
+          height: 390,
+          rotation: 0,
+          z_index: index + 1,
+        };
+
+        await saveAtlas({
+          data: {
+            atlasId: targetAtlasId,
+            title: atlasData.atlas.title ?? "Meu Atlas visual",
+            description: atlasData.atlas.description ?? "",
+            deletedCardIds: [],
+            cards: [
+              ...existingCards.map((card) => ({
+                id: card.id,
+                card_type: card.card_type,
+                entity_id: card.entity_id,
+                title: card.title,
+                body: card.body,
+                media_url: card.media_url,
+                link_url: card.link_url,
+                x: card.x,
+                y: card.y,
+                width: card.width,
+                height: card.height,
+                rotation: card.rotation ?? 0,
+                z_index: card.z_index ?? 0,
+              })),
+              newCard,
+            ],
+          },
+        });
+
+        toast.success(`Imagem adicionada a “${atlasData.atlas.title ?? "Meu Atlas visual"}”.`);
+      } else {
+        toast.info("Esta obra já está no seu Atlas mais recente.");
+      }
+
+      navigate({ to: "/atlas/$atlasId", params: { atlasId: targetAtlasId } });
+    } catch (error) {
+      if (error instanceof Response && (error.status === 401 || error.status === 403)) {
+        toast.info("Entre na sua conta para adicionar esta obra a um Atlas pessoal.");
+        navigate({ to: "/auth" });
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : "Não foi possível adicionar esta obra ao Atlas.";
+      if (/sess[aã]o|autentic|unauthor|forbidden|login/i.test(message)) {
+        toast.info("Entre na sua conta para adicionar esta obra a um Atlas pessoal.");
+        navigate({ to: "/auth" });
+      } else {
+        toast.error(message);
+      }
+    } finally {
+      setAddingToAtlas(false);
+    }
+  };
+
   return (
     <Shell>
       <Link
@@ -299,6 +640,8 @@ function EntityDetail() {
             title={entity.title}
             imageUrl={entity.image_url}
             sourceUrl={sourceLinks[0]?.url ?? null}
+            metadata={metadata}
+            onResolvedUrl={setResolvedImageUrl}
           />
 
           <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
@@ -441,16 +784,11 @@ function EntityDetail() {
               >
                 <Link to="/acervo/$id" params={{ id: work.id }} className="block">
                   <div className="aspect-[4/3] overflow-hidden bg-secondary">
-                    {work.image_url ? (
-                      <img
-                        src={work.image_url}
-                        alt={work.title}
-                        loading="lazy"
-                        className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
-                      />
-                    ) : (
-                      <Placeholder title={work.title} />
-                    )}
+                    <RelatedWorkImage
+                      title={work.title}
+                      imageUrl={work.image_url}
+                      sourceUrl={work.source_url ?? null}
+                    />
                   </div>
                   <div className="p-4">
                     <Badge variant="secondary" className="text-[0.65rem] uppercase">
@@ -657,8 +995,13 @@ function EntityDetail() {
             </a>
           </Button>
         )}
-        <Button asChild variant="outline">
-          <Link to="/atlas">Adicionar a um Atlas</Link>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={addCurrentEntityToAtlas}
+          disabled={addingToAtlas}
+        >
+          {addingToAtlas ? "Adicionando…" : "Adicionar a um Atlas"}
         </Button>
       </div>
     </Shell>
@@ -694,18 +1037,31 @@ function ArtworkImage({
   title,
   imageUrl,
   sourceUrl,
+  metadata,
+  onResolvedUrl,
 }: {
   title: string;
   imageUrl: string | null;
   sourceUrl: string | null;
+  metadata?: unknown;
+  onResolvedUrl?: (url: string) => void;
 }) {
-  const [failed, setFailed] = useState(false);
-  const image = imageUrl && !failed ? (
+  const candidates = useResolvedImageCandidates({ imageUrl, sourceUrl, metadata });
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  useEffect(() => {
+    setCurrentIndex(0);
+  }, [candidates.join("|")]);
+
+  const currentUrl = candidates[currentIndex] ?? null;
+  const image = currentUrl ? (
     <img
-      src={imageUrl}
+      src={currentUrl}
       alt={title}
       className="w-full object-cover"
-      onError={() => setFailed(true)}
+      loading="eager"
+      onLoad={() => onResolvedUrl?.(currentUrl)}
+      onError={() => setCurrentIndex((index) => index + 1)}
     />
   ) : (
     <div className="flex aspect-[4/5] flex-col items-center justify-center gap-3 bg-secondary px-6 text-center">
@@ -724,6 +1080,37 @@ function ArtworkImage({
         image
       )}
     </div>
+  );
+}
+
+function RelatedWorkImage({
+  title,
+  imageUrl,
+  sourceUrl,
+}: {
+  title: string;
+  imageUrl: string | null;
+  sourceUrl: string | null;
+}) {
+  const candidates = useResolvedImageCandidates({ imageUrl, sourceUrl });
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  useEffect(() => {
+    setCurrentIndex(0);
+  }, [candidates.join("|")]);
+
+  const currentUrl = candidates[currentIndex] ?? null;
+
+  if (!currentUrl) return <Placeholder title={title} />;
+
+  return (
+    <img
+      src={currentUrl}
+      alt={title}
+      loading="lazy"
+      className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+      onError={() => setCurrentIndex((index) => index + 1)}
+    />
   );
 }
 
