@@ -1,6 +1,7 @@
 /**
  * Leituras públicas do acervo (Turso).
- * A listagem remove duplicatas visuais sem apagar nenhum registro do banco.
+ * As grades visuais exibem apenas registros publicados com image_url preenchida e removem duplicatas sem apagar nenhum registro do banco.
+ * Entidades sem imagem permanecem preservadas no Turso para relações, pesquisa histórica e acesso direto.
  */
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
@@ -32,7 +33,7 @@ export const listAcervo = createServerFn({ method: "GET" }).handler(async () => 
   const { query } = await import("@/lib/turso/client.server");
   const { cachedPublic } = await import("@/lib/server-cache.server");
 
-  return cachedPublic<AcervoListRow[]>("acervo:list:v4", 2 * 60_000, async () =>
+  return cachedPublic<AcervoListRow[]>("acervo:list:v5-images-only", 2 * 60_000, async () =>
     query<AcervoListRow>(
       `WITH ranked AS (
          SELECT
@@ -51,6 +52,8 @@ export const listAcervo = createServerFn({ method: "GET" }).handler(async () => 
            ) AS duplicate_rank
          FROM entities
          WHERE status = 'published'
+           AND image_url IS NOT NULL
+           AND trim(image_url) <> ''
        )
        SELECT id, title, subtitle, entity_type, image_url, date_display,
               continent, country, culture, tags, themes, metadata
@@ -95,8 +98,12 @@ export const searchAcervo = createServerFn({ method: "POST" })
       pageSize: data.pageSize,
     };
 
-    return cachedPublic(cacheKey("acervo:search:v2", normalized), 60_000, async () => {
-    const where: string[] = ["e.status = 'published'"];
+    return cachedPublic(cacheKey("acervo:search:v3-images-only", normalized), 60_000, async () => {
+    const where: string[] = [
+      "e.status = 'published'",
+      "e.image_url IS NOT NULL",
+      "trim(e.image_url) <> ''",
+    ];
     const args: (string | number)[] = [];
 
     if (data.q) {
@@ -173,9 +180,9 @@ export const searchAcervo = createServerFn({ method: "POST" })
     )`;
 
     const offset = (data.page - 1) * data.pageSize;
-    const typesPromise = cachedPublic<string[]>("acervo:types:v1", 10 * 60_000, async () => {
+    const typesPromise = cachedPublic<string[]>("acervo:types:v2-images-only", 10 * 60_000, async () => {
       const rows = await query<{ entity_type: string }>(
-        "SELECT DISTINCT entity_type FROM entities WHERE status='published' ORDER BY entity_type COLLATE NOCASE",
+        "SELECT DISTINCT entity_type FROM entities WHERE status='published' AND image_url IS NOT NULL AND trim(image_url) <> '' ORDER BY entity_type COLLATE NOCASE",
       );
       return rows.map((row) => row.entity_type);
     });
@@ -493,6 +500,8 @@ export const getEntityDetail = createServerFn({ method: "GET" })
                     ) AS duplicate_rank
                FROM entities e
               WHERE e.status = 'published'
+                AND e.image_url IS NOT NULL
+                AND trim(e.image_url) <> ''
                 AND e.id <> ?1
                 AND e.entity_type IN ('obra','projeto','fotografia','design','arquitetura','filme','performance')
                 AND (
@@ -537,6 +546,8 @@ export const getEntityDetail = createServerFn({ method: "GET" })
                     ) AS duplicate_rank
                FROM entities e
               WHERE e.status = 'published'
+                AND e.image_url IS NOT NULL
+                AND trim(e.image_url) <> ''
                 AND e.id <> ?1
                 AND e.entity_type IN ('obra','projeto','fotografia','design','arquitetura','filme','performance')
                 AND (
@@ -613,6 +624,8 @@ export const listEntitiesByTag = createServerFn({ method: "GET" })
            ) AS duplicate_rank
          FROM entities
          WHERE status = 'published'
+           AND image_url IS NOT NULL
+           AND trim(image_url) <> ''
            AND (
              COALESCE(tags, '') LIKE ?1 COLLATE NOCASE
              OR COALESCE(themes, '') LIKE ?1 COLLATE NOCASE
