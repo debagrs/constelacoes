@@ -20,12 +20,19 @@ const inputSchema = z.object({
   limit: z.number().int().min(4).max(48).default(24),
 });
 
-async function fetchJson<T>(url: string, timeoutMs = 12_000): Promise<T> {
+async function fetchJson<T>(
+  url: string,
+  timeoutMs = 12_000,
+  extraHeaders: Record<string, string> = {},
+): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, {
-      headers: { "User-Agent": "AtlasPlanetario/1.0 (educational cultural project)" },
+      headers: {
+        "User-Agent": "AtlasPlanetario/1.0 (educational cultural project)",
+        ...extraHeaders,
+      },
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -102,8 +109,10 @@ async function searchAic(query: string, limit: number): Promise<FederatedArtwork
     "artwork_type_title",
     "is_public_domain",
   ].join(",");
-  const url = `https://api.artic.edu/api/v1/artworks/search?q=${encodeURIComponent(query)}&limit=${Math.min(limit, 24)}&fields=${fields}`;
-  const response = await fetchJson<AicResponse>(url);
+  const url = `https://api.artic.edu/api/v1/artworks/search?q=${encodeURIComponent(query)}&query[term][is_public_domain]=true&limit=${Math.min(limit, 24)}&fields=${fields}`;
+  const response = await fetchJson<AicResponse>(url, 12_000, {
+    "AIC-User-Agent": "AtlasPlanetarioUFSM/1.0",
+  });
   const iiif = response.config?.iiif_url || "https://www.artic.edu/iiif/2";
 
   return response.data
@@ -185,11 +194,13 @@ async function searchCommons(query: string, limit: number): Promise<FederatedArt
 export const searchOpenCollections = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => inputSchema.parse(input))
   .handler(async ({ data }) => {
+    const { toExternalSearchQuery } = await import("@/lib/search-dictionary");
     const perSource = Math.max(4, Math.ceil(data.limit / 3));
+    const externalQuery = toExternalSearchQuery(data.query);
     const settled = await Promise.allSettled([
-      searchMet(data.query, perSource),
-      searchAic(data.query, perSource),
-      searchCommons(data.query, perSource),
+      searchMet(externalQuery, perSource),
+      searchAic(externalQuery, perSource),
+      searchCommons(externalQuery, perSource),
     ]);
 
     const sources = ["met", "aic", "commons"] as const;
