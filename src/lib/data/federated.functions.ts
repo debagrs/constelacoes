@@ -191,27 +191,69 @@ async function searchCommons(query: string, limit: number): Promise<FederatedArt
     .filter((item): item is FederatedArtwork => Boolean(item));
 }
 
+function normalizeSearchVariant(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function selectExternalVariants(input: string, expanded: string[], preferred: string) {
+  const variants: string[] = [];
+  const seen = new Set<string>();
+
+  const add = (value?: string | null) => {
+    const clean = value?.trim();
+    if (!clean || clean.length < 2) return;
+    const normalized = normalizeSearchVariant(clean);
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    variants.push(clean);
+  };
+
+  add(preferred);
+  if (/s$/i.test(preferred) && preferred.length > 3) add(preferred.replace(/s$/i, ""));
+  add(input);
+  expanded.forEach(add);
+
+  // O vocabulário continua centralizado em search-dictionary.ts.
+  // Acrescentar aliases ali automaticamente amplia esta busca também.
+  return variants.slice(0, 4);
+}
+
 export const searchOpenCollections = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => inputSchema.parse(input))
   .handler(async ({ data }) => {
-    const { toExternalSearchQuery } = await import("@/lib/search-dictionary");
-    const perSource = Math.max(4, Math.ceil(data.limit / 3));
-    const externalQuery = toExternalSearchQuery(data.query);
-    const settled = await Promise.allSettled([
-      searchMet(externalQuery, perSource),
-      searchAic(externalQuery, perSource),
-      searchCommons(externalQuery, perSource),
-    ]);
+    const { expandSearchTerms, toExternalSearchQuery } = await import("@/lib/search-dictionary");
+    const expanded = expandSearchTerms(data.query, 18);
+    const preferred = toExternalSearchQuery(data.query);
+    const variants = selectExternalVariants(data.query, expanded, preferred);
+    const perQueryPerSource = Math.max(3, Math.ceil(data.limit / Math.max(1, variants.length * 3)));
 
-    const sources = ["met", "aic", "commons"] as const;
+    const tasks = variants.flatMap((variant) => [
+      { source: "met", variant, promise: searchMet(variant, perQueryPerSource) },
+      { source: "aic", variant, promise: searchAic(variant, perQueryPerSource) },
+      { source: "commons", variant, promise: searchCommons(variant, perQueryPerSource) },
+    ] as const);
+
+    const settled = await Promise.allSettled(tasks.map((task) => task.promise));
     const errors: string[] = [];
     const results: FederatedArtwork[] = [];
 
     settled.forEach((item, index) => {
-      if (item.status === "fulfilled") results.push(...item.value);
-      else errors.push(`${sources[index]}: ${item.reason instanceof Error ? item.reason.message : "falha"}`);
+      const task = tasks[index];
+      if (item.status === "fulfilled") {
+        results.push(...item.value);
+      } else {
+        errors.push(`${task.source} (${task.variant}): ${item.reason instanceof Error ? item.reason.message : "falha"}`);
+      }
     });
 
-    const unique = Array.from(new Map(results.map((item) => [`${item.sourceName}:${item.id}`, item])).values());
-    return { results: unique.slice(0, data.limit), errors };
+    const unique = Array.from(
+      new Map(results.map((item) => [`${item.sourceName}:${item.id}`, item])).values(),
+    );
+
+    return { results: unique.slice(0, data.limit), errors, queryVariants: variants };
   });
