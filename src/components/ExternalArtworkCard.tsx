@@ -1,6 +1,53 @@
-import { ExternalLink } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ExternalLink, ImageOff } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import type { FederatedArtwork } from "@/lib/data/federated.functions";
+
+function normalizeImageUrl(value: string | null | undefined) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.startsWith("http://") ? `https://${trimmed.slice(7)}` : trimmed;
+}
+
+function ExternalImage({ artwork }: { artwork: FederatedArtwork }) {
+  const candidates = useMemo(() => {
+    const seen = new Set<string>();
+    return [artwork.thumbnailUrl, artwork.imageUrl]
+      .map(normalizeImageUrl)
+      .filter((url): url is string => Boolean(url))
+      .filter((url) => {
+        const key = url.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }, [artwork.thumbnailUrl, artwork.imageUrl]);
+
+  const [index, setIndex] = useState(0);
+  useEffect(() => setIndex(0), [candidates.join("|")]);
+  const src = candidates[index] ?? null;
+
+  if (!src) {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-4 text-center text-muted-foreground">
+        <ImageOff className="h-7 w-7 opacity-55" aria-hidden="true" />
+        <span className="text-xs">Imagem indisponível no servidor da instituição</span>
+        <span className="text-[0.65rem]">Abra a fonte para consultar a obra.</span>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={artwork.title}
+      loading="lazy"
+      onError={() => setIndex((value) => value + 1)}
+      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+    />
+  );
+}
 
 export function ExternalArtworkCard({ artwork }: { artwork: FederatedArtwork }) {
   return (
@@ -11,15 +58,7 @@ export function ExternalArtworkCard({ artwork }: { artwork: FederatedArtwork }) 
       className="group block overflow-hidden rounded-lg border border-border/60 bg-card transition-all hover:border-primary/50 hover:shadow-lg"
     >
       <div className="relative aspect-[4/5] overflow-hidden bg-muted">
-        {artwork.thumbnailUrl || artwork.imageUrl ? (
-          <img
-            src={artwork.thumbnailUrl || artwork.imageUrl || ""}
-            alt={artwork.title}
-            loading="lazy"
-            referrerPolicy="no-referrer"
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-          />
-        ) : null}
+        <ExternalImage artwork={artwork} />
         <Badge className="absolute left-3 top-3 max-w-[80%] truncate bg-background/90 text-foreground backdrop-blur">
           {artwork.sourceName}
         </Badge>
