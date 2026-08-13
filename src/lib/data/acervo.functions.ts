@@ -86,6 +86,7 @@ export const searchAcervo = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { query, queryOne } = await import("@/lib/turso/client.server");
     const { cachedPublic, cacheKey } = await import("@/lib/server-cache.server");
+    const { expandSearchTerms } = await import("@/lib/search-dictionary");
     const normalized = {
       q: data.q ?? "",
       type: data.type ?? null,
@@ -94,18 +95,44 @@ export const searchAcervo = createServerFn({ method: "POST" })
       pageSize: data.pageSize,
     };
 
-    return cachedPublic(cacheKey("acervo:search:v1", normalized), 60_000, async () => {
+    return cachedPublic(cacheKey("acervo:search:v2", normalized), 60_000, async () => {
     const where: string[] = ["e.status = 'published'"];
     const args: (string | number)[] = [];
 
     if (data.q) {
-      const like = `%${data.q}%`;
-      where.push(`(
-        e.title LIKE ? COLLATE NOCASE OR e.subtitle LIKE ? COLLATE NOCASE
-        OR e.culture LIKE ? COLLATE NOCASE OR e.country LIKE ? COLLATE NOCASE
-        OR e.tags LIKE ? COLLATE NOCASE OR e.themes LIKE ? COLLATE NOCASE
-      )`);
-      args.push(like, like, like, like, like, like);
+      const expandedTerms = expandSearchTerms(data.q, 20);
+      const searchableFields = [
+        "e.title",
+        "COALESCE(e.subtitle, '')",
+        "COALESCE(e.description, '')",
+        "COALESCE(e.culture, '')",
+        "COALESCE(e.country, '')",
+        "COALESCE(e.continent, '')",
+        "COALESCE(e.tags, '')",
+        "COALESCE(e.themes, '')",
+        "COALESCE(e.materials, '')",
+        "COALESCE(e.techniques, '')",
+        "COALESCE(e.metadata, '')",
+      ];
+
+      const termGroups = expandedTerms.map(() => {
+        const fields = searchableFields.map((field) => `${field} LIKE ? COLLATE NOCASE`);
+        fields.push(`EXISTS (
+          SELECT 1
+            FROM entity_motifs em
+            JOIN motifs m ON m.id = em.motif_id
+           WHERE em.entity_id = e.id
+             AND (m.name LIKE ? COLLATE NOCASE OR COALESCE(m.description, '') LIKE ? COLLATE NOCASE)
+        )`);
+        return `(${fields.join(" OR ")})`;
+      });
+
+      where.push(`(${termGroups.join(" OR ")})`);
+      for (const expandedTerm of expandedTerms) {
+        const like = `%${expandedTerm}%`;
+        for (let index = 0; index < searchableFields.length; index += 1) args.push(like);
+        args.push(like, like);
+      }
     }
     if (data.type) {
       where.push("e.entity_type = ?");
