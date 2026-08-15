@@ -1,0 +1,423 @@
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import {
+  AlertTriangle,
+  Ban,
+  CheckCircle2,
+  ExternalLink,
+  GitMerge,
+  ImageOff,
+  SearchCheck,
+  ShieldCheck,
+  Tags,
+} from "lucide-react";
+import { toast } from "sonner";
+import { useAuth } from "@/lib/auth";
+import {
+  approveCategoryCandidate,
+  getQualityDashboard,
+  listCategoryCandidates,
+  listDuplicateGroups,
+  listQualityIssues,
+  mergeDuplicateEntities,
+  setEntityQualityStatus,
+  type CoverageCategory,
+  type QualityIssue,
+} from "@/lib/data/quality.functions";
+import { SiteHeader } from "@/components/SiteHeader";
+import { SiteFooter } from "@/components/SiteFooter";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+
+export const Route = createFileRoute("/_authenticated/curadoria/qualidade")({
+  component: CuradoriaQualidade,
+});
+
+const ISSUE_ORDER: QualityIssue[] = [
+  "suspect_image",
+  "missing_source",
+  "missing_attribution",
+  "missing_technique",
+  "missing_license",
+];
+
+const CATEGORY_ORDER: CoverageCategory[] = [
+  "women",
+  "indigenous",
+  "black",
+  "lgbtqia",
+  "animalities",
+  "beyond",
+];
+
+function CuradoriaQualidade() {
+  const { isReviewer, loading } = useAuth();
+  const queryClient = useQueryClient();
+  const [issue, setIssue] = useState<QualityIssue>("suspect_image");
+  const [category, setCategory] = useState<CoverageCategory>("animalities");
+
+  const dashboard = useQuery({
+    queryKey: ["quality-dashboard"],
+    queryFn: () => getQualityDashboard(),
+    enabled: isReviewer,
+  });
+  const issueQueue = useQuery({
+    queryKey: ["quality-issues", issue],
+    queryFn: () => listQualityIssues({ data: { issue, limit: 50 } }),
+    enabled: isReviewer,
+  });
+  const duplicates = useQuery({
+    queryKey: ["quality-duplicates"],
+    queryFn: () => listDuplicateGroups(),
+    enabled: isReviewer,
+  });
+  const categoryCandidates = useQuery({
+    queryKey: ["quality-category", category],
+    queryFn: () => listCategoryCandidates({ data: { category, limit: 40 } }),
+    enabled: isReviewer,
+  });
+
+  const refresh = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["quality-dashboard"] }),
+      queryClient.invalidateQueries({ queryKey: ["quality-issues"] }),
+      queryClient.invalidateQueries({ queryKey: ["quality-duplicates"] }),
+      queryClient.invalidateQueries({ queryKey: ["quality-category"] }),
+      queryClient.invalidateQueries({ queryKey: ["acervo"] }),
+      queryClient.invalidateQueries({ queryKey: ["featured-entities"] }),
+    ]);
+  };
+
+  const setStatus = useMutation({
+    mutationFn: (input: { entityId: string; status: "verified" | "needs_review" | "quarantined" }) =>
+      setEntityQualityStatus({ data: input }),
+    onSuccess: async () => {
+      toast.success("Estado curatorial atualizado.");
+      await refresh();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const merge = useMutation({
+    mutationFn: (input: { canonicalId: string; duplicateId: string }) =>
+      mergeDuplicateEntities({ data: input }),
+    onSuccess: async () => {
+      toast.success("Duplicata fundida ao registro canônico.");
+      await refresh();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const classify = useMutation({
+    mutationFn: (input: { entityId: string; category: CoverageCategory }) =>
+      approveCategoryCandidate({ data: input }),
+    onSuccess: async () => {
+      toast.success("Pertinência à lente curatorial registrada.");
+      await refresh();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  if (loading) return <Shell><Skeleton className="h-52 w-full" /></Shell>;
+  if (!isReviewer) return <Restricted />;
+
+  const data = dashboard.data;
+  const totals = data?.totals;
+  const labels = data?.issueLabels ?? {};
+
+  return (
+    <Shell>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-eyebrow text-primary">Integridade curatorial</p>
+          <h1 className="mt-1 font-display text-3xl font-semibold sm:text-4xl">
+            Qualidade do acervo
+          </h1>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
+            Auditoria assistida, nunca automática. As heurísticas apenas localizam problemas e possíveis
+            pertencimentos curatoriais; a decisão final continua sendo humana. Registros em quarentena
+            saem do acervo público sem serem apagados.
+          </p>
+        </div>
+        <Button asChild variant="outline"><Link to="/curadoria">Voltar à Curadoria</Link></Button>
+      </div>
+
+      {data && !data.statsReady ? (
+        <section className="mt-8 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-6">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-600" />
+            <div>
+              <h2 className="font-display text-xl font-semibold">Índices de baixo consumo ainda não preparados</h2>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                Quando a cota do Turso estiver disponível, execute no GitHub Actions “Preparar Atlas — baixo consumo”.
+                A auditoria passará a ler tabelas-resumo pequenas em vez de recalcular todo o acervo.
+              </p>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {dashboard.isError ? (
+        <section className="mt-8 rounded-2xl border border-destructive/30 bg-destructive/5 p-6">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 text-destructive" />
+            <div>
+              <h2 className="font-display text-xl font-semibold">Não foi possível carregar a auditoria</h2>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                {dashboard.error instanceof Error ? dashboard.error.message : "Erro desconhecido ao consultar o Turso."}
+              </p>
+              <Button className="mt-4" variant="outline" onClick={() => dashboard.refetch()}>Tentar novamente</Button>
+            </div>
+          </div>
+        </section>
+      ) : dashboard.isLoading ? (
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-28" />)}
+        </div>
+      ) : (
+        <>
+          <section className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Metric title="Registros publicados" value={Number(totals?.published ?? 0)} />
+            <Metric title="Imagens únicas" value={Number(totals?.unique_images ?? 0)} />
+            <Metric title="AIC domínio público" value={Number(totals?.aic_public_domain ?? 0)} />
+            <Metric title="AIC com imagem" value={Number(totals?.aic_with_image ?? 0)} />
+            <Metric title="AIC sem imagem" value={Number(totals?.aic_without_image ?? 0)} />
+            <Metric title="Verificados" value={Number(totals?.verified ?? 0)} />
+            <Metric title="Precisam revisão" value={Number(totals?.needs_review ?? 0)} />
+            <Metric title="Em quarentena" value={Number(totals?.quarantined ?? 0)} />
+            <Metric title="Imagens suspeitas" value={Number(totals?.suspect_image ?? 0)} warning />
+            <Metric title="Sem fonte" value={Number(totals?.missing_source ?? 0)} warning />
+            <Metric title="Sem técnica" value={Number(totals?.missing_technique ?? 0)} />
+            <Metric title="Grupos duplicados" value={Number(totals?.duplicate_groups ?? 0)} warning />
+          </section>
+
+          <div className="mt-4 rounded-xl border bg-muted/30 px-4 py-3 text-xs leading-5 text-muted-foreground">
+            “Registros publicados” inclui fichas documentais sem imagem. “Imagens únicas” é o número efetivamente disponível no acervo visual.
+            As imagens do AIC permanecem no IIIF institucional; o Turso guarda metadados e URLs.
+          </div>
+
+          <section className="mt-12">
+            <div className="flex items-center gap-2">
+              <Tags className="h-5 w-5 text-primary" />
+              <div>
+                <p className="text-eyebrow text-muted-foreground">Cobertura curatorial</p>
+                <h2 className="font-display text-2xl font-semibold">Equilíbrio das perspectivas</h2>
+              </div>
+            </div>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+              Os pisos são metas editoriais, não cotas rígidas. Uma obra pode participar de várias lentes.
+              Identidades sensíveis nunca são inferidas pela aparência: os candidatos abaixo precisam de fonte e revisão.
+            </p>
+            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {data?.coverage.map((item) => {
+                const percent = Math.min(100, Math.round((item.count / item.target) * 100));
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setCategory(item.id as CoverageCategory)}
+                    className={`rounded-2xl border bg-card p-5 text-left transition ${category === item.id ? "border-primary ring-1 ring-primary/30" : "hover:border-primary/40"}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="font-display text-xl font-semibold">{item.label}</h3>
+                      <Badge variant={item.gap > 0 ? "secondary" : "default"}>{percent}%</Badge>
+                    </div>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {item.count.toLocaleString("pt-BR")} documentados · meta {item.target.toLocaleString("pt-BR")}
+                    </p>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
+                      <div className="h-full bg-primary transition-all" style={{ width: `${Math.max(2, percent)}%` }} />
+                    </div>
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      {item.possibleCandidates.toLocaleString("pt-BR")} registros do próprio acervo podem merecer revisão para esta lente.
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        </>
+      )}
+
+      <section className="mt-12 rounded-2xl border bg-card p-5 sm:p-6">
+        <div className="flex items-center gap-2">
+          <SearchCheck className="h-5 w-5 text-primary" />
+          <h2 className="font-display text-2xl font-semibold">Reclassificar o que já temos</h2>
+        </div>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+          Esta fila procura sinais textuais nos metadados existentes. Ela não atribui identidade automaticamente.
+          Ao confirmar, você registra apenas a pertinência à lente curatorial selecionada.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {CATEGORY_ORDER.map((id) => {
+            const label = data?.coverage.find((item) => item.id === id)?.label ?? id;
+            return <Button key={id} size="sm" variant={category === id ? "default" : "outline"} onClick={() => setCategory(id)}>{label}</Button>;
+          })}
+        </div>
+        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {categoryCandidates.isError ? <Empty text={categoryCandidates.error instanceof Error ? categoryCandidates.error.message : "Erro ao carregar candidatos."} /> :
+            categoryCandidates.isLoading ? Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-72" />) :
+            categoryCandidates.data?.length ? categoryCandidates.data.map((entity) => (
+              <EntityAuditCard
+                key={entity.id}
+                entity={entity}
+                footer={
+                  <Button
+                    size="sm"
+                    disabled={classify.isPending}
+                    onClick={() => classify.mutate({ entityId: entity.id, category })}
+                  >
+                    <CheckCircle2 className="mr-2 h-4 w-4" />Confirmar nesta lente
+                  </Button>
+                }
+              />
+            )) : <Empty text="Nenhum candidato adicional encontrado nesta busca." />}
+        </div>
+      </section>
+
+      <section className="mt-12">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-5 w-5 text-primary" />
+          <h2 className="font-display text-2xl font-semibold">Filas de inconsistências</h2>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {ISSUE_ORDER.map((id) => (
+            <Button key={id} size="sm" variant={issue === id ? "default" : "outline"} onClick={() => setIssue(id)}>
+              {String((labels as Record<string, string>)[id] ?? id)}
+            </Button>
+          ))}
+        </div>
+        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {issueQueue.isError ? <Empty text={issueQueue.error instanceof Error ? issueQueue.error.message : "Erro ao carregar a fila."} /> :
+            issueQueue.isLoading ? Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-72" />) :
+            issueQueue.data?.length ? issueQueue.data.map((entity) => (
+              <EntityAuditCard
+                key={entity.id}
+                entity={entity}
+                footer={
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" disabled={setStatus.isPending} onClick={() => setStatus.mutate({ entityId: entity.id, status: "verified" })}>
+                      <CheckCircle2 className="mr-1 h-4 w-4" />Verificado
+                    </Button>
+                    <Button size="sm" variant="outline" disabled={setStatus.isPending} onClick={() => setStatus.mutate({ entityId: entity.id, status: "needs_review" })}>
+                      <AlertTriangle className="mr-1 h-4 w-4" />Revisar
+                    </Button>
+                    <Button size="sm" variant="destructive" disabled={setStatus.isPending} onClick={() => {
+                      if (window.confirm("Colocar este registro em quarentena? Ele deixará de aparecer no acervo público, mas não será apagado.")) {
+                        setStatus.mutate({ entityId: entity.id, status: "quarantined" });
+                      }
+                    }}>
+                      <Ban className="mr-1 h-4 w-4" />Quarentena
+                    </Button>
+                  </div>
+                }
+              />
+            )) : <Empty text="Nenhum registro nesta fila." />}
+        </div>
+      </section>
+
+      <section className="mt-12">
+        <div className="flex items-center gap-2">
+          <GitMerge className="h-5 w-5 text-primary" />
+          <h2 className="font-display text-2xl font-semibold">Possíveis duplicatas</h2>
+        </div>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+          A fusão transfere relações, Atlas pessoais, facetas, bibliografia e sugestões de imagem para o registro mantido.
+          Só confirme depois de comparar as fichas e as fontes.
+        </p>
+        <div className="mt-6 space-y-5">
+          {duplicates.isError ? <Empty text={duplicates.error instanceof Error ? duplicates.error.message : "Erro ao localizar duplicatas."} /> :
+            duplicates.isLoading ? <Skeleton className="h-64" /> : duplicates.data?.length ? duplicates.data.map((group, index) => (
+            <div key={`${group.kind}-${group.signature}-${index}`} className="rounded-2xl border bg-card p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Badge variant="outline">{group.kind === "image" ? "mesma URL de imagem" : "mesma assinatura documental"}</Badge>
+                <span className="text-xs text-muted-foreground">{group.entities.length} registros</span>
+              </div>
+              <div className="mt-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                {group.entities.map((entity) => (
+                  <div key={entity.id} className="overflow-hidden rounded-xl border bg-background">
+                    <div className="grid grid-cols-[110px_1fr]">
+                      <Thumb image={entity.image_url} title={entity.title} />
+                      <div className="p-3">
+                        <Link to="/acervo/$id" params={{ id: entity.id }} className="font-display text-lg font-semibold hover:underline">{entity.title}</Link>
+                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{[entity.subtitle, entity.date_display, entity.country].filter(Boolean).join(" · ")}</p>
+                        {entity.source_url && <a href={entity.source_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline"><ExternalLink className="h-3 w-3" />fonte</a>}
+                      </div>
+                    </div>
+                    <div className="border-t p-3">
+                      <p className="mb-2 text-xs text-muted-foreground">Manter este como canônico e fundir os outros nele:</p>
+                      <Button
+                        size="sm"
+                        disabled={merge.isPending}
+                        onClick={async () => {
+                          const others = group.entities.filter((item) => item.id !== entity.id);
+                          if (!window.confirm(`Fundir ${others.length} registro(s) em “${entity.title}”? Esta operação altera referências no banco.`)) return;
+                          for (const other of others) await merge.mutateAsync({ canonicalId: entity.id, duplicateId: other.id });
+                        }}
+                      >
+                        <GitMerge className="mr-2 h-4 w-4" />Manter e fundir
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )) : <Empty text="Nenhum grupo de duplicatas encontrado pelas regras atuais." />}
+        </div>
+      </section>
+    </Shell>
+  );
+}
+
+function Metric({ title, value, warning = false }: { title: string; value: number; warning?: boolean }) {
+  return (
+    <div className={`rounded-2xl border bg-card p-5 ${warning && value > 0 ? "border-destructive/30" : ""}`}>
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">{title}</p>
+      <p className="mt-2 font-display text-3xl font-semibold">{value.toLocaleString("pt-BR")}</p>
+    </div>
+  );
+}
+
+function EntityAuditCard({ entity, footer }: { entity: Record<string, unknown>; footer: React.ReactNode }) {
+  const image = typeof entity.image_url === "string" ? entity.image_url : null;
+  const source = typeof entity.source_url === "string" ? entity.source_url : null;
+  return (
+    <article className="overflow-hidden rounded-2xl border bg-card">
+      <div className="aspect-[16/10] overflow-hidden bg-muted"><Thumb image={image} title={String(entity.title ?? "")} large /></div>
+      <div className="p-4">
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="secondary">{String(entity.entity_type ?? "registro")}</Badge>
+          {entity.quality_status && <Badge variant="outline">{String(entity.quality_status)}</Badge>}
+        </div>
+        <Link to="/acervo/$id" params={{ id: String(entity.id) }} className="mt-3 block font-display text-xl font-semibold hover:underline">
+          {String(entity.title ?? "Sem título")}
+        </Link>
+        {entity.subtitle && <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{String(entity.subtitle)}</p>}
+        <p className="mt-2 text-xs text-muted-foreground">{[entity.date_display, entity.country, entity.culture].filter(Boolean).map(String).join(" · ")}</p>
+        <div className="mt-3 flex flex-wrap gap-3 text-xs">
+          {source && <a href={source} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><ExternalLink className="h-3 w-3" />fonte</a>}
+          {image && <a href={image} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><ExternalLink className="h-3 w-3" />imagem</a>}
+        </div>
+        <div className="mt-4 border-t pt-4">{footer}</div>
+      </div>
+    </article>
+  );
+}
+
+function Thumb({ image, title, large = false }: { image: string | null; title: string; large?: boolean }) {
+  return image ? <img src={image} alt={title} loading="lazy" className={`h-full w-full object-cover ${large ? "min-h-40" : "min-h-28"}`} /> : <div className="flex h-full min-h-28 items-center justify-center bg-muted"><ImageOff className="h-6 w-6 text-muted-foreground" /></div>;
+}
+
+function Empty({ text }: { text: string }) {
+  return <div className="col-span-full rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">{text}</div>;
+}
+
+function Restricted() {
+  return <Shell><div className="rounded-2xl border bg-card p-10 text-center"><ShieldCheck className="mx-auto h-8 w-8 text-muted-foreground" /><h1 className="mt-4 font-display text-2xl font-semibold">Acesso restrito</h1><p className="mt-2 text-sm text-muted-foreground">Somente a curadoria autorizada pode revisar a integridade do acervo.</p><Button asChild className="mt-6"><Link to="/">Voltar</Link></Button></div></Shell>;
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
+  return <div className="flex min-h-screen flex-col"><SiteHeader /><main className="mx-auto w-full max-w-7xl flex-1 px-4 py-10 sm:px-6">{children}</main><SiteFooter /></div>;
+}
