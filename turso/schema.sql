@@ -355,3 +355,50 @@ CREATE INDEX IF NOT EXISTS idx_entities_image_url ON entities(image_url);
 CREATE INDEX IF NOT EXISTS idx_entities_status_type ON entities(status, entity_type);
 CREATE INDEX IF NOT EXISTS idx_entities_status_continent ON entities(status, continent);
 
+
+------------------------------------------------------------------ integridade curatorial do acervo
+-- Esta camada NÃO apaga registros automaticamente. Ela registra revisão humana,
+-- permite quarentena reversível e sustenta as lentes curatoriais documentadas.
+CREATE TABLE IF NOT EXISTS facets (
+  id      TEXT PRIMARY KEY,
+  kind    TEXT NOT NULL,
+  name    TEXT NOT NULL,
+  summary TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_facets_kind ON facets(kind);
+
+CREATE TABLE IF NOT EXISTS entity_facets (
+  entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  facet_id  TEXT NOT NULL REFERENCES facets(id) ON DELETE CASCADE,
+  PRIMARY KEY (entity_id, facet_id)
+);
+CREATE INDEX IF NOT EXISTS idx_entity_facets_facet ON entity_facets(facet_id);
+
+CREATE TABLE IF NOT EXISTS entity_quality (
+  entity_id           TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+  quality_status      TEXT NOT NULL DEFAULT 'unreviewed'
+    CHECK (quality_status IN ('unreviewed','verified','needs_review','quarantined')),
+  issues              TEXT NOT NULL DEFAULT '[]',
+  canonical_entity_id TEXT REFERENCES entities(id) ON DELETE SET NULL,
+  original_status     TEXT,
+  reviewer_id         TEXT,
+  notes               TEXT,
+  reviewed_at         TEXT,
+  created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX IF NOT EXISTS idx_entity_quality_status ON entity_quality(quality_status);
+CREATE INDEX IF NOT EXISTS idx_entity_quality_canonical ON entity_quality(canonical_entity_id);
+
+-- Lentes curatoriais: indicam pertinência ao recorte, não inferem identidade do artista.
+INSERT OR IGNORE INTO facets (id, kind, name, summary) VALUES
+  ('curadoria:mulheres-e-maes', 'curadoria', 'Mulheres e mães', 'Lente curatorial documentada para genealogias femininas, maternidades, cuidado e produção de mulheres.'),
+  ('curadoria:indigenas', 'curadoria', 'Indígenas', 'Lente curatorial documentada para produções, povos, cosmologias, territórios e questões indígenas.'),
+  ('curadoria:negros-e-diasporas', 'curadoria', 'Negros e diásporas', 'Lente curatorial documentada para produções negras, afro-diaspóricas, quilombolas e relações correlatas.'),
+  ('curadoria:lgbtqia', 'curadoria', 'LGBTQIA+', 'Lente curatorial documentada para produções e questões LGBTQIA+.'),
+  ('curadoria:bioetica-e-animalidades', 'curadoria', 'Bioética e animalidades', 'Lente para bioética, animalidades, relações multiespécies e mais-que-humano.'),
+  ('curadoria:alem-do-antropoceno', 'curadoria', 'Além do Antropoceno', 'Lente para ecologias, pós-humanismos, plantas, fungos, clima, água, materialidades e cosmotécnicas.'),
+  ('sensibilidade:animalidades', 'sensibilidade', 'Animalidades', 'Relações entre humanos e outros animais, representação, percepção e agência animal.'),
+  ('sensibilidade:mais-que-humano', 'sensibilidade', 'Mais-que-humano', 'Relações multiespécies, ecologias e agências não humanas.'),
+  ('sensibilidade:multiespecies', 'sensibilidade', 'Multiespécies', 'Coexistências e relações entre espécies.'),
+  ('sensibilidade:alem-do-antropoceno', 'sensibilidade', 'Além do Antropoceno', 'Perspectivas ecológicas, pós-humanas e cosmotécnicas para além do excepcionalismo humano.');
