@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Globe2, Search } from "lucide-react";
-import { searchAcervo } from "@/lib/data/acervo.functions";
+import { getAcervoStats, searchAcervo } from "@/lib/data/acervo.functions";
 import { useI18n } from "@/lib/i18n";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -60,6 +60,13 @@ function AcervoPage() {
 
   useEffect(() => setPage(1), [type, lens]);
 
+  const stats = useQuery({
+    queryKey: ["acervo-stats"],
+    queryFn: () => getAcervoStats(),
+    staleTime: 2 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+
   const { data, isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: ["acervo-page", q, type, lens, page],
     queryFn: () =>
@@ -95,8 +102,18 @@ function AcervoPage() {
               {t("acervo.title")}
             </h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              {(data?.total ?? 0).toLocaleString("pt-BR")} {t("acervo.subtitle")}
+              {(data?.total ?? 0).toLocaleString("pt-BR")} {t("acervo.subtitle")} nesta seleção
             </p>
+            {stats.data ? (
+              <p className="mt-1 max-w-4xl text-xs leading-5 text-muted-foreground">
+                Acervo geral: <strong>{stats.data.uniqueImages.toLocaleString("pt-BR")}</strong> imagens únicas · {" "}
+                <strong>{stats.data.published.toLocaleString("pt-BR")}</strong> registros documentais publicados.
+                {stats.data.aicPublicDomain > 0 ? (
+                  <> AIC: <strong>{stats.data.aicPublicDomain.toLocaleString("pt-BR")}</strong> obras em domínio público sincronizadas, {" "}
+                  <strong>{stats.data.aicWithImage.toLocaleString("pt-BR")}</strong> com imagem IIIF.</>
+                ) : null}
+              </p>
+            ) : null}
           </header>
 
           <div className="mb-8 space-y-4">
@@ -120,7 +137,7 @@ function AcervoPage() {
               </Button>
             </div>
             <p className="max-w-2xl text-xs text-muted-foreground">
-              A busca do Atlas é paginada no servidor para manter o acervo rápido mesmo com dezenas de milhares de imagens. O botão também consulta acervos abertos externos.
+              A busca do Atlas é paginada no servidor para continuar rápida com dezenas de milhares de registros. Fichas sem imagem permanecem documentadas no banco, mas não ocupam cards no acervo visual. O botão também consulta acervos abertos externos.
             </p>
 
             <div>
@@ -178,7 +195,7 @@ function AcervoPage() {
             <section className="mb-10 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-6">
               <h2 className="font-display text-xl font-semibold">O banco está conectado, mas o acervo está vazio</h2>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Execute a restauração do acervo ou a ação de ampliação para 20 mil imagens no GitHub Actions.
+                Execute a restauração do acervo ou a ação “Sincronizar acervo público completo do AIC” no GitHub Actions.
               </p>
             </section>
           ) : null}
