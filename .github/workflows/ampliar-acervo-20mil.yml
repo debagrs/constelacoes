@@ -1,25 +1,22 @@
-name: Ampliar Atlas para 10 mil imagens
+name: Sincronizar acervo público completo do AIC
 
 on:
   workflow_dispatch:
     inputs:
-      target_total:
-        description: "Total desejado de imagens únicas no Atlas"
+      reset_cursor:
+        description: "Recomeçar a leitura do dump desde o início (use false para retomar uma execução interrompida)"
         required: true
-        default: "10000"
-      start_offset:
-        description: "Offset do Wikidata para retomar uma execução (normalmente 0)"
-        required: true
-        default: "0"
+        default: false
+        type: boolean
 
 concurrency:
-  group: atlas-ingest-wikidata
+  group: atlas-sync-aic-public-domain
   cancel-in-progress: false
 
 jobs:
-  ingest:
+  sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 330
+    timeout-minutes: 360
     steps:
       - name: Baixar repositório
         uses: actions/checkout@v4
@@ -28,10 +25,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
 
       - name: Instalar dependências
-        run: npm ci
+        run: npm install --no-package-lock --no-audit --no-fund
 
       - name: Garantir esquema e índices
         env:
@@ -39,11 +35,46 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: npm run db:schema
 
-      - name: Ampliar acervo
+      - name: Reclassificar o acervo que já existe
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
-          ATLAS_TARGET_TOTAL: ${{ inputs.target_total }}
-          ATLAS_START_OFFSET: ${{ inputs.start_offset }}
-          ATLAS_PAGE: "250"
-        run: npm run ingest:10000
+        run: npm run curate:facets
+
+      - name: Garantir núcleo documentado de mulheres e mães
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: npm run ingest:mulheres-maes
+
+      - name: Baixar dump oficial do Art Institute of Chicago
+        run: |
+          mkdir -p /tmp/aic-data
+          curl -L --fail --retry 5 --retry-delay 5 \
+            https://artic-api-data.s3.amazonaws.com/artic-api-data.tar.bz2 \
+            -o /tmp/artic-api-data.tar.bz2
+          tar -xjf /tmp/artic-api-data.tar.bz2 -C /tmp/aic-data
+          rm -f /tmp/artic-api-data.tar.bz2
+          echo "Tamanho extraído:"
+          du -sh /tmp/aic-data
+
+      - name: Sincronizar todas as obras em domínio público do AIC
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          AIC_DATA_DIR: /tmp/aic-data
+          ATLAS_RESET_AIC_CURSOR: ${{ inputs.reset_cursor }}
+          ATLAS_AIC_BATCH: "400"
+        run: npm run ingest:aic:full
+
+      - name: Reclassificar as novas entradas nas lentes curatoriais
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: npm run curate:facets
+
+      - name: Auditar resultado real
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: npm run db:audit
