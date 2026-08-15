@@ -165,6 +165,11 @@ export const getQualityDashboard = createServerFn({ method: "GET" }).handler(asy
   const totals = await queryOne<{
     total: number;
     published: number;
+    unique_images: number;
+    published_without_image: number;
+    aic_public_domain: number;
+    aic_with_image: number;
+    aic_without_image: number;
     verified: number;
     needs_review: number;
     quarantined: number;
@@ -176,6 +181,14 @@ export const getQualityDashboard = createServerFn({ method: "GET" }).handler(asy
   }>(`SELECT
       COUNT(*) AS total,
       SUM(CASE WHEN e.status='published' THEN 1 ELSE 0 END) AS published,
+      COUNT(DISTINCT CASE
+        WHEN e.status='published' AND e.image_url IS NOT NULL AND trim(e.image_url)<>''
+        THEN lower(trim(e.image_url))
+      END) AS unique_images,
+      SUM(CASE WHEN e.status='published' AND (e.image_url IS NULL OR trim(e.image_url)='') THEN 1 ELSE 0 END) AS published_without_image,
+      SUM(CASE WHEN e.status='published' AND e.id LIKE 'aic-%' THEN 1 ELSE 0 END) AS aic_public_domain,
+      SUM(CASE WHEN e.status='published' AND e.id LIKE 'aic-%' AND e.image_url IS NOT NULL AND trim(e.image_url)<>'' THEN 1 ELSE 0 END) AS aic_with_image,
+      SUM(CASE WHEN e.status='published' AND e.id LIKE 'aic-%' AND (e.image_url IS NULL OR trim(e.image_url)='') THEN 1 ELSE 0 END) AS aic_without_image,
       SUM(CASE WHEN q.quality_status='verified' THEN 1 ELSE 0 END) AS verified,
       SUM(CASE WHEN q.quality_status='needs_review' THEN 1 ELSE 0 END) AS needs_review,
       SUM(CASE WHEN q.quality_status='quarantined' THEN 1 ELSE 0 END) AS quarantined,
