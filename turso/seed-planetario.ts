@@ -117,7 +117,7 @@ async function main() {
     }
 
     // facetas
-    await db.execute({ sql: "DELETE FROM entity_facets WHERE entity_id = ?", args: [id] });
+    await db.execute({ sql: "DELETE FROM entity_facets WHERE entity_id = ? AND facet_id NOT LIKE 'curadoria:%'", args: [id] });
     const links = [
       ...s.sens.map((n) => facetId("sensibilidade", n)),
       ...(s.ident ?? []).map((n) => facetId("identidade", n)),
