@@ -74,12 +74,12 @@ const AcervoSearchInput = z.object({
 });
 
 const LENS_FACETS: Record<string, string[]> = {
-  women: ["identidade:mulheres", "identidade:maes", "sensibilidade:artistas-maes", "sensibilidade:maternidade"],
-  indigenous: ["identidade:povos-indigenas", "sensibilidade:cosmovisao-indigena"],
-  black: ["identidade:pessoas-negras", "identidade:quilombolas", "cosmologia:ancestralidade-afro-diasporica"],
-  lgbtqia: ["identidade:lgbtqia"],
-  bioethics: ["sensibilidade:bioetica", "sensibilidade:direitos-animais"],
-  beyond: ["sensibilidade:antropoceno", "sensibilidade:pos-humanismo", "sensibilidade:ecologia"],
+  women: ["curadoria:mulheres-e-maes", "identidade:mulheres", "identidade:maes", "sensibilidade:artistas-maes", "sensibilidade:maternidade"],
+  indigenous: ["curadoria:indigenas", "identidade:povos-indigenas", "sensibilidade:cosmovisao-indigena"],
+  black: ["curadoria:negros-e-diasporas", "identidade:pessoas-negras", "identidade:quilombolas", "cosmologia:ancestralidade-afro-diasporica"],
+  lgbtqia: ["curadoria:lgbtqia", "identidade:lgbtqia"],
+  bioethics: ["curadoria:bioetica-e-animalidades", "sensibilidade:bioetica", "sensibilidade:direitos-animais", "sensibilidade:animalidades", "sensibilidade:mais-que-humano", "sensibilidade:multiespecies"],
+  beyond: ["curadoria:alem-do-antropoceno", "sensibilidade:alem-do-antropoceno", "sensibilidade:antropoceno", "sensibilidade:pos-humanismo", "sensibilidade:ecologia", "sensibilidade:mais-que-humano", "sensibilidade:tecnodiversidade"],
 };
 
 const SPECIAL_FACETS = Array.from(new Set(Object.values(LENS_FACETS).flat()));
@@ -236,6 +236,7 @@ export const listFeatured = createServerFn({ method: "GET" }).handler(async () =
       id: "women",
       label: "Mulheres e mães",
       facets: [
+        "curadoria:mulheres-e-maes",
         "identidade:mulheres",
         "identidade:maes",
         "sensibilidade:artistas-maes",
@@ -245,12 +246,13 @@ export const listFeatured = createServerFn({ method: "GET" }).handler(async () =
     {
       id: "indigenous",
       label: "Indígenas",
-      facets: ["identidade:povos-indigenas", "sensibilidade:cosmovisao-indigena"],
+      facets: ["curadoria:indigenas", "identidade:povos-indigenas", "sensibilidade:cosmovisao-indigena"],
     },
     {
       id: "black",
       label: "Negros e diásporas",
       facets: [
+        "curadoria:negros-e-diasporas",
         "identidade:pessoas-negras",
         "identidade:quilombolas",
         "cosmologia:ancestralidade-afro-diasporica",
@@ -259,23 +261,31 @@ export const listFeatured = createServerFn({ method: "GET" }).handler(async () =
     {
       id: "lgbtqia",
       label: "LGBTQIA+",
-      facets: ["identidade:lgbtqia"],
+      facets: ["curadoria:lgbtqia", "identidade:lgbtqia"],
     },
     {
       id: "bioethics",
       label: "Bioética e animalidades",
       facets: [
+        "curadoria:bioetica-e-animalidades",
         "sensibilidade:bioetica",
         "sensibilidade:direitos-animais",
+        "sensibilidade:animalidades",
+        "sensibilidade:mais-que-humano",
+        "sensibilidade:multiespecies",
       ],
     },
     {
       id: "beyond",
       label: "Além do Antropoceno",
       facets: [
+        "curadoria:alem-do-antropoceno",
+        "sensibilidade:alem-do-antropoceno",
         "sensibilidade:antropoceno",
         "sensibilidade:pos-humanismo",
         "sensibilidade:ecologia",
+        "sensibilidade:mais-que-humano",
+        "sensibilidade:tecnodiversidade",
       ],
     },
   ] as const;
@@ -285,8 +295,8 @@ export const listFeatured = createServerFn({ method: "GET" }).handler(async () =
   );
 
   const pools = await cachedPublic<Record<string, FeaturedRow[]>>(
-    "acervo:featured-balanced-pools:v1",
-    10 * 60_000,
+    "acervo:featured-balanced-pools:v2-quality",
+    60_000,
     async () => {
       const result: Record<string, FeaturedRow[]> = {};
 
