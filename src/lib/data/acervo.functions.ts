@@ -65,6 +65,39 @@ export const listAcervo = createServerFn({ method: "GET" }).handler(async () => 
 });
 
 
+export const getAcervoStats = createServerFn({ method: "GET" }).handler(async () => {
+  const { queryOne } = await import("@/lib/turso/client.server");
+  const { cachedPublic } = await import("@/lib/server-cache.server");
+
+  return cachedPublic("acervo:stats:v1-aic-full", 2 * 60_000, async () => {
+    const row = await queryOne<{
+      published: number;
+      unique_images: number;
+      without_image: number;
+      aic_public_domain: number;
+      aic_with_image: number;
+    }>(`SELECT
+        COUNT(*) AS published,
+        COUNT(DISTINCT CASE
+          WHEN image_url IS NOT NULL AND trim(image_url)<>'' THEN lower(trim(image_url))
+        END) AS unique_images,
+        SUM(CASE WHEN image_url IS NULL OR trim(image_url)='' THEN 1 ELSE 0 END) AS without_image,
+        SUM(CASE WHEN id LIKE 'aic-%' THEN 1 ELSE 0 END) AS aic_public_domain,
+        SUM(CASE WHEN id LIKE 'aic-%' AND image_url IS NOT NULL AND trim(image_url)<>'' THEN 1 ELSE 0 END) AS aic_with_image
+      FROM entities
+      WHERE status='published'`);
+
+    return {
+      published: Number(row?.published ?? 0),
+      uniqueImages: Number(row?.unique_images ?? 0),
+      withoutImage: Number(row?.without_image ?? 0),
+      aicPublicDomain: Number(row?.aic_public_domain ?? 0),
+      aicWithImage: Number(row?.aic_with_image ?? 0),
+    };
+  });
+});
+
+
 const AcervoSearchInput = z.object({
   q: z.string().trim().max(160).optional(),
   type: z.string().trim().max(60).nullable().optional(),
