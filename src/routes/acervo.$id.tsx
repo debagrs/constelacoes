@@ -13,6 +13,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { labelForEntityType, labelForRelationType } from "@/lib/constants";
 import {
+  aicMetadataImageUrl,
+  fetchCurrentAicImageUrl,
+} from "@/lib/aic-images";
+import {
   getCuratorialReferenceGroups,
   getTechniqueTechnologyReferenceGroups,
   referenceSearchUrl,
@@ -46,23 +50,6 @@ interface SourceLink {
   url: string;
 }
 
-const IMAGE_KEYWORDS = [
-  "image",
-  "imagem",
-  "thumbnail",
-  "thumb",
-  "preview",
-  "iiif",
-  "media",
-  "arquivo",
-  "file",
-  "foto",
-  "jpeg",
-  "jpg",
-  "png",
-  "webp",
-  "gif",
-];
 
 function safeDecode(value: string) {
   try {
@@ -142,8 +129,7 @@ function extractWikipediaArticleInfo(rawUrl: string | null | undefined) {
 
 function collectImageMetadataUrls(value: unknown, path: string[] = [], results: string[] = []): string[] {
   if (typeof value === "string") {
-    const key = (path[path.length - 1] ?? "").toLowerCase();
-    if (isLikelyDirectImageUrl(value) || IMAGE_KEYWORDS.some((token) => key.includes(token))) {
+    if (isLikelyDirectImageUrl(value)) {
       results.push(value.trim());
     }
     return results;
@@ -161,6 +147,7 @@ function collectImageMetadataUrls(value: unknown, path: string[] = [], results: 
 }
 
 function buildImageCandidates(options: {
+  entityId?: string | null;
   imageUrl?: string | null;
   sourceUrl?: string | null;
   metadata?: unknown;
@@ -180,8 +167,9 @@ function buildImageCandidates(options: {
   ].filter(Boolean) as string[];
 
   const derivedCommons = sourceLikeUrls.flatMap((url) => commonsDirectCandidates(url));
+  const aicUrl = aicMetadataImageUrl(options.metadata);
 
-  return uniqueStrings([options.imageUrl, ...metadataUrls, ...derivedCommons]);
+  return uniqueStrings([aicUrl, options.imageUrl, ...metadataUrls, ...derivedCommons]);
 }
 
 async function resolveCommonsOriginal(rawUrl: string): Promise<string | null> {
@@ -231,6 +219,7 @@ async function resolveWikipediaOriginal(rawUrl: string): Promise<string | null> 
 }
 
 function useResolvedImageCandidates(options: {
+  entityId?: string | null;
   imageUrl?: string | null;
   sourceUrl?: string | null;
   metadata?: unknown;
@@ -251,14 +240,14 @@ function useResolvedImageCandidates(options: {
 
     async function enrich() {
       const baseUrls = uniqueStrings([options.imageUrl, options.sourceUrl]);
-      const resolved = uniqueStrings(
-        (await Promise.all(
-          baseUrls.flatMap((url) => [resolveCommonsOriginal(url), resolveWikipediaOriginal(url)]),
-        )) as Array<string | null>,
-      );
+      const [aicCurrent, ...resolvedLegacy] = await Promise.all([
+        fetchCurrentAicImageUrl(options.entityId, options.sourceUrl),
+        ...baseUrls.flatMap((url) => [resolveCommonsOriginal(url), resolveWikipediaOriginal(url)]),
+      ]);
+      const resolved = uniqueStrings([aicCurrent, ...resolvedLegacy]);
 
       if (!cancelled && resolved.length > 0) {
-        setCandidates((current) => uniqueStrings([...current, ...resolved]));
+        setCandidates((current) => uniqueStrings([...resolved, ...current]));
       }
     }
 
@@ -267,7 +256,7 @@ function useResolvedImageCandidates(options: {
     return () => {
       cancelled = true;
     };
-  }, [options.imageUrl, options.sourceUrl]);
+  }, [options.entityId, options.imageUrl, options.sourceUrl]);
 
   return candidates;
 }
@@ -637,6 +626,7 @@ function EntityDetail() {
       <div className="grid gap-10 lg:grid-cols-2">
         <div>
           <ArtworkImage
+            entityId={entity.id}
             title={entity.title}
             imageUrl={entity.image_url}
             sourceUrl={sourceLinks[0]?.url ?? null}
@@ -1034,19 +1024,21 @@ function MetadataList({ rows }: { rows: Array<[string, string | null]> }) {
 }
 
 function ArtworkImage({
+  entityId,
   title,
   imageUrl,
   sourceUrl,
   metadata,
   onResolvedUrl,
 }: {
+  entityId: string;
   title: string;
   imageUrl: string | null;
   sourceUrl: string | null;
   metadata?: unknown;
   onResolvedUrl?: (url: string) => void;
 }) {
-  const candidates = useResolvedImageCandidates({ imageUrl, sourceUrl, metadata });
+  const candidates = useResolvedImageCandidates({ entityId, imageUrl, sourceUrl, metadata });
   const [currentIndex, setCurrentIndex] = useState(0);
 
   useEffect(() => {
