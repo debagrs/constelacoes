@@ -3,21 +3,32 @@ import { createClient, type Client, type InArgs } from "@libsql/client/web";
 
 let cachedClient: Client | undefined;
 
-function readRequiredEnvironmentVariable(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) {
+function cleanEnvironmentValue(value: string | undefined, name: string): string {
+  const cleaned = value?.trim().replace(/^['"]|['"]$/g, "");
+  if (!cleaned) {
     throw new Error(
-      `Variável do Turso ausente: ${name}. Configure-a na Vercel e faça um novo deploy.`,
+      `Variável do Turso ausente: ${name}. Configure-a na Vercel para Production e faça um novo deploy.`,
     );
   }
-  return value.replace(/^['"]|['"]$/g, "");
+  return cleaned;
 }
 
-export function db(): Client {
-  if (cachedClient) return cachedClient;
-
-  const url = readRequiredEnvironmentVariable("TURSO_DATABASE_URL");
-  const authToken = readRequiredEnvironmentVariable("TURSO_AUTH_TOKEN");
+/**
+ * IMPORTANTE:
+ * Leia as variáveis por acesso estático (process.env.NOME) e somente quando db()
+ * é chamado durante a requisição. TanStack Start/Nitro recomenda leitura
+ * per-request e o acesso estático evita que o bundler perca a chave ao
+ * transformar código server-only.
+ */
+function readTursoEnvironment() {
+  const url = cleanEnvironmentValue(
+    process.env.TURSO_DATABASE_URL,
+    "TURSO_DATABASE_URL",
+  );
+  const authToken = cleanEnvironmentValue(
+    process.env.TURSO_AUTH_TOKEN,
+    "TURSO_AUTH_TOKEN",
+  );
 
   if (!url.startsWith("libsql://") && !url.startsWith("https://")) {
     throw new Error(
@@ -25,6 +36,13 @@ export function db(): Client {
     );
   }
 
+  return { url, authToken };
+}
+
+export function db(): Client {
+  if (cachedClient) return cachedClient;
+
+  const { url, authToken } = readTursoEnvironment();
   cachedClient = createClient({ url, authToken });
   return cachedClient;
 }
