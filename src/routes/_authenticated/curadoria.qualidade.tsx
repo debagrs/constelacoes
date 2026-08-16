@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Ban,
@@ -30,6 +30,10 @@ import { SiteFooter } from "@/components/SiteFooter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  aicMetadataImageUrl,
+  fetchCurrentAicImageUrl,
+} from "@/lib/aic-images";
 
 export const Route = createFileRoute("/_authenticated/curadoria/qualidade")({
   component: CuradoriaQualidade,
@@ -383,9 +387,19 @@ function Metric({ title, value, warning = false }: { title: string; value: numbe
 function EntityAuditCard({ entity, footer }: { entity: Record<string, unknown>; footer: React.ReactNode }) {
   const image = typeof entity.image_url === "string" ? entity.image_url : null;
   const source = typeof entity.source_url === "string" ? entity.source_url : null;
+  const metadata = entity.metadata;
   return (
     <article className="overflow-hidden rounded-2xl border bg-card">
-      <div className="aspect-[16/10] overflow-hidden bg-muted"><Thumb image={image} title={String(entity.title ?? "")} large /></div>
+      <div className="aspect-[16/10] overflow-hidden bg-muted">
+        <Thumb
+          entityId={String(entity.id ?? "")}
+          image={image}
+          source={source}
+          metadata={metadata}
+          title={String(entity.title ?? "")}
+          large
+        />
+      </div>
       <div className="p-4">
         <div className="flex flex-wrap gap-2">
           <Badge variant="secondary">{String(entity.entity_type ?? "registro")}</Badge>
@@ -406,8 +420,69 @@ function EntityAuditCard({ entity, footer }: { entity: Record<string, unknown>; 
   );
 }
 
-function Thumb({ image, title, large = false }: { image: string | null; title: string; large?: boolean }) {
-  return image ? <img src={image} alt={title} loading="lazy" className={`h-full w-full object-cover ${large ? "min-h-40" : "min-h-28"}`} /> : <div className="flex h-full min-h-28 items-center justify-center bg-muted"><ImageOff className="h-6 w-6 text-muted-foreground" /></div>;
+function Thumb({
+  entityId,
+  image,
+  source,
+  metadata,
+  title,
+  large = false,
+}: {
+  entityId: string;
+  image: string | null;
+  source: string | null;
+  metadata?: unknown;
+  title: string;
+  large?: boolean;
+}) {
+  const initialCandidates = useMemo(() => {
+    const values = [aicMetadataImageUrl(metadata), image]
+      .filter((value): value is string => Boolean(value?.trim()));
+    return [...new Set(values)];
+  }, [image, metadata]);
+
+  const [candidates, setCandidates] = useState(initialCandidates);
+  const [index, setIndex] = useState(0);
+  const [liveTried, setLiveTried] = useState(false);
+
+  useEffect(() => {
+    setCandidates(initialCandidates);
+    setIndex(0);
+    setLiveTried(false);
+  }, [initialCandidates]);
+
+  const current = candidates[index] ?? null;
+
+  const handleError = async () => {
+    if (index + 1 < candidates.length) {
+      setIndex((value) => value + 1);
+      return;
+    }
+    if (!liveTried && /^aic-\d+$/i.test(entityId)) {
+      setLiveTried(true);
+      const live = await fetchCurrentAicImageUrl(entityId, source);
+      if (live && !candidates.includes(live)) {
+        setCandidates((currentValues) => [...currentValues, live]);
+        setIndex(candidates.length);
+        return;
+      }
+    }
+    setIndex(candidates.length);
+  };
+
+  return current ? (
+    <img
+      src={current}
+      alt={title}
+      loading="lazy"
+      onError={() => void handleError()}
+      className={`h-full w-full object-cover ${large ? "min-h-40" : "min-h-28"}`}
+    />
+  ) : (
+    <div className="flex h-full min-h-28 items-center justify-center bg-muted">
+      <ImageOff className="h-6 w-6 text-muted-foreground" />
+    </div>
+  );
 }
 
 function Empty({ text }: { text: string }) {
