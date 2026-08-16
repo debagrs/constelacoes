@@ -95,7 +95,7 @@ export const listRegions = createServerFn({ method: "GET" }).handler(async () =>
   const { query } = await import("@/lib/turso/client.server");
   const { cachedPublic } = await import("@/lib/server-cache.server");
 
-  return cachedPublic("planetario:regions:low-read:v1", 15 * 60_000, async () => {
+  return cachedPublic("planetario:regions:low-read:v2", 15 * 60_000, async () => {
     try {
       return await query<RegionNode>(
         `SELECT r.id,r.parent_id,r.name,r.continent,r.latitude,r.longitude,r.summary,
@@ -118,7 +118,7 @@ export const listFacets = createServerFn({ method: "GET" }).handler(async () => 
   const { query } = await import("@/lib/turso/client.server");
   const { cachedPublic } = await import("@/lib/server-cache.server");
 
-  return cachedPublic("planetario:facets:low-read:v1", 15 * 60_000, async () => {
+  return cachedPublic("planetario:facets:low-read:v2", 15 * 60_000, async () => {
     try {
       return await query<FacetRow>(
         `SELECT f.id,f.kind,f.name,f.summary,COALESCE(s.published_count,0) AS total
@@ -210,7 +210,7 @@ export const getRegionOverview = createServerFn({ method: "GET" })
     const { query, queryOne } = await import("@/lib/turso/client.server");
     const { cachedPublic } = await import("@/lib/server-cache.server");
 
-    return cachedPublic(`planetario:overview:low-read:v1:${data.id}`, 10 * 60_000, async () => {
+    return cachedPublic(`planetario:overview:low-read:v2:${data.id}`, 10 * 60_000, async () => {
       const region = await queryOne<RegionNode>(
         `SELECT r.id,r.parent_id,r.name,r.continent,r.latitude,r.longitude,r.summary,
                 COALESCE(s.published_count,0) AS total
@@ -302,7 +302,7 @@ export const searchRegionItems = createServerFn({ method: "POST" })
       cursor: data.cursor ?? null,
     };
 
-    return cachedPublic(cacheKey("planetario:map-items:low-read:v1", normalized), 5 * 60_000, async () => {
+    return cachedPublic(cacheKey("planetario:map-items:low-read:v2", normalized), 5 * 60_000, async () => {
       const where: string[] = ["e.status='published'", canonicalClause];
       const args: Array<string | number> = [];
 
