@@ -1,0 +1,83 @@
+name: Diagnosticar conexão Turso
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnostico:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar dependências
+        run: npm install --no-package-lock --no-audit --no-fund
+
+      - name: Confirmar secrets sem exibir valores
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$TURSO_DATABASE_URL" ]; then
+            echo "::error::TURSO_DATABASE_URL ausente nos Repository secrets"
+            exit 1
+          fi
+          if [ -z "$TURSO_AUTH_TOKEN" ]; then
+            echo "::error::TURSO_AUTH_TOKEN ausente nos Repository secrets"
+            exit 1
+          fi
+          echo "OK: os dois Repository secrets chegaram ao runner."
+
+      - name: Testar conexão e estruturas essenciais
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { createClient } from '@libsql/client';
+
+          const url = process.env.TURSO_DATABASE_URL?.trim();
+          const authToken = process.env.TURSO_AUTH_TOKEN?.trim();
+          const db = createClient({ url, authToken });
+
+          try {
+            const ping = await db.execute('SELECT 1 AS ok');
+            console.log('TURSO_OK:', ping.rows[0]?.ok ?? 1);
+
+            const tables = await db.execute(`
+              SELECT name
+              FROM sqlite_master
+              WHERE type = 'table'
+                AND name IN ('entities','entity_dedupe_index','atlas_metrics','entity_facets','facets')
+              ORDER BY name
+            `);
+
+            const found = tables.rows.map((row) => String(row.name));
+            console.log('TABELAS_ENCONTRADAS:', found.join(', ') || '(nenhuma)');
+
+            if (!found.includes('entities')) {
+              console.error('::error::ATLAS_SCHEMA: tabela entities não existe neste banco. Confira se a URL aponta para o banco constelacoes.');
+              process.exit(1);
+            }
+
+            const expected = ['entity_dedupe_index','atlas_metrics'];
+            const missing = expected.filter((name) => !found.includes(name));
+            if (missing.length) {
+              console.error(`::error::ATLAS_PREPARACAO: faltam ${missing.join(', ')}. A conexão funciona, mas a migração de baixo consumo ainda não foi aplicada.`);
+              process.exit(2);
+            }
+
+            console.log('ATLAS_OK: conexão e estruturas essenciais presentes.');
+          } catch (error) {
+            const raw = String(error?.message ?? error);
+            const safe = authToken ? raw.split(authToken).join('[REDACTED]') : raw;
+            console.error('::error::TURSO_ERROR:', safe);
+            process.exit(1);
+          }
+          NODE
