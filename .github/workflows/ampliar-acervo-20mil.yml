@@ -20,7 +20,6 @@ jobs:
     steps:
       - name: Baixar repositório
         uses: actions/checkout@v4
-
       - name: Configurar Node
         uses: actions/setup-node@v4
         with:
@@ -34,13 +33,11 @@ jobs:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: npm run db:schema
-
       - name: Garantir núcleo documentado de mulheres e mães
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
         run: npm run ingest:mulheres-maes
-
       - name: Baixar dump oficial do Art Institute of Chicago
         run: |
           mkdir -p /tmp/aic-data
@@ -50,7 +47,6 @@ jobs:
           tar -xjf /tmp/artic-api-data.tar.bz2 -C /tmp/aic-data
           rm -f /tmp/artic-api-data.tar.bz2
           du -sh /tmp/aic-data
-
       - name: Sincronizar obras em domínio público do AIC
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
@@ -59,14 +55,12 @@ jobs:
           ATLAS_RESET_AIC_CURSOR: ${{ inputs.reset_cursor }}
           ATLAS_AIC_BATCH: "600"
         run: npm run ingest:aic:full
-
       - name: Reconstruir resumos, deduplicação e filas curatoriais uma única vez
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           ATLAS_INDEX_PAGE_SIZE: "1200"
         run: npm run db:refresh-indexes
-
       - name: Otimizar busca textual depois da carga
         env:
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
