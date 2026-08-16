@@ -82,6 +82,7 @@ function AcervoPage() {
     staleTime: 2 * 60_000,
     placeholderData: (previous) => previous,
     refetchOnWindowFocus: false,
+    retry: 1,
   });
 
   const externalSearch = useMutation({
@@ -197,9 +198,9 @@ function AcervoPage() {
 
           {isError ? (
             <section className="mb-10 rounded-2xl border border-destructive/30 bg-destructive/5 p-6">
-              <h2 className="font-display text-xl font-semibold">O banco não respondeu</h2>
+              <h2 className="font-display text-xl font-semibold">Não foi possível carregar o acervo</h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Confira a cota mensal do Turso e, se ela estiver disponível, as variáveis TURSO_DATABASE_URL e TURSO_AUTH_TOKEN na Vercel.
+                A conexão com o banco está configurada. Tente novamente; se a leitura falhar, o servidor registra o erro técnico nos Runtime Logs sem expor credenciais.
               </p>
               <Button className="mt-4" variant="outline" onClick={() => refetch()}>
                 Tentar novamente
