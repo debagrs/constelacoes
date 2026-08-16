@@ -1,0 +1,80 @@
+name: Sincronizar acervo AIC — baixo consumo
+
+on:
+  workflow_dispatch:
+    inputs:
+      reset_cursor:
+        description: "Recomeçar o dump do início? Mantenha false para continuar sem reimportar o que já foi concluído."
+        required: true
+        default: false
+        type: boolean
+
+concurrency:
+  group: atlas-sync-aic-low-read
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Baixar repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar dependências
+        run: npm install --no-package-lock --no-audit --no-fund
+
+      - name: Confirmar estrutura de baixo consumo sem reaplicar schema legado
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: node turso/migrate-low-read-safe.mjs
+
+      - name: Garantir núcleo documentado de mulheres e mães
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: npm run ingest:mulheres-maes
+
+      - name: Baixar dump oficial do Art Institute of Chicago
+        run: |
+          mkdir -p /tmp/aic-data
+          curl -L --fail --retry 5 --retry-delay 5 \
+            https://artic-api-data.s3.amazonaws.com/artic-api-data.tar.bz2 \
+            -o /tmp/artic-api-data.tar.bz2
+          tar -xjf /tmp/artic-api-data.tar.bz2 -C /tmp/aic-data
+          rm -f /tmp/artic-api-data.tar.bz2
+          du -sh /tmp/aic-data
+
+      - name: Sincronizar obras em domínio público do AIC
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          AIC_DATA_DIR: /tmp/aic-data
+          ATLAS_RESET_AIC_CURSOR: ${{ inputs.reset_cursor }}
+          ATLAS_AIC_BATCH: "600"
+        run: npm run ingest:aic:full
+
+      - name: Reconstruir resumos, deduplicação e filas curatoriais
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          ATLAS_INDEX_PAGE_SIZE: "1200"
+        run: npm run db:refresh-indexes
+
+      - name: Otimizar busca textual se estiver habilitada
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: npm run db:optimize-fts
+
+      - name: Auditar pelos resumos materializados
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+        run: npm run db:audit
