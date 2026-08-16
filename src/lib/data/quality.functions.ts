@@ -257,10 +257,11 @@ export const listQualityIssues = createServerFn({ method: "POST" })
       source_url: string | null;
       image_license: string | null;
       techniques: string;
+      metadata: string;
       quality_status: QualityStatus | null;
       quality_notes: string | null;
     }>(`SELECT e.id,e.entity_type,e.title,e.subtitle,e.date_display,e.country,e.culture,
-               e.image_url,e.source_url,e.image_license,e.techniques,
+               e.image_url,e.source_url,e.image_license,e.techniques,e.metadata,
                q.quality_status,q.notes AS quality_notes
           FROM atlas_quality_issues qi
           JOIN entities e ON e.id=qi.entity_id
@@ -287,6 +288,7 @@ export const listDuplicateGroups = createServerFn({ method: "GET" }).handler(asy
     source_url: string | null;
     country: string | null;
     entity_type: string;
+    metadata: string;
   };
 
   const imageRows = await query<Row>(`WITH keys AS (
@@ -296,7 +298,7 @@ export const listDuplicateGroups = createServerFn({ method: "GET" }).handler(asy
        LIMIT 30
     )
     SELECT 'image' AS kind,k.signature,e.id,e.title,e.subtitle,e.date_display,
-           e.image_url,e.source_url,e.country,e.entity_type
+           e.image_url,e.source_url,e.country,e.entity_type,e.metadata
       FROM keys k
       JOIN entity_dedupe_index di ON di.image_key=k.signature
       JOIN entities e ON e.id=di.entity_id
@@ -310,7 +312,7 @@ export const listDuplicateGroups = createServerFn({ method: "GET" }).handler(asy
        LIMIT 30
     )
     SELECT 'signature' AS kind,k.signature,e.id,e.title,e.subtitle,e.date_display,
-           e.image_url,e.source_url,e.country,e.entity_type
+           e.image_url,e.source_url,e.country,e.entity_type,e.metadata
       FROM keys k
       JOIN entity_dedupe_index di ON di.signature_key=k.signature
       JOIN entities e ON e.id=di.entity_id
