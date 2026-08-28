@@ -142,7 +142,7 @@ export const searchAcervo = createServerFn({ method: "POST" })
       cursor: data.cursor ?? null,
     };
 
-    return cachedPublic(cacheKey("acervo:search:curated:v3", normalized), 30_000, async () => {
+    return cachedPublic(cacheKey("acervo:search:public:v4", normalized), 30_000, async () => {
       const where: string[] = [
         "e.status='published'",
         "e.image_url IS NOT NULL",
@@ -152,6 +152,8 @@ export const searchAcervo = createServerFn({ method: "POST" })
       const args: Array<string | number> = [];
 
       const q = data.q?.trim();
+      const orderArgs: Array<string | number> = [];
+      let orderBy = "e.id ASC";
       if (q) {
         const terms = expandSearchTerms(q, 8);
         if (await hasNativeFts(queryOne)) {
@@ -176,6 +178,15 @@ export const searchAcervo = createServerFn({ method: "POST" })
             args.push(prefix, prefix);
           }
           if (groups.length) where.push(`(${groups.join(" OR ")})`);
+        }
+        if (!data.cursor) {
+          orderBy = `CASE
+            WHEN lower(trim(e.title))=lower(trim(?)) THEN 0
+            WHEN lower(trim(COALESCE(e.subtitle,'')))=lower(trim(?)) THEN 1
+            WHEN lower(e.title) LIKE lower(?) THEN 2
+            WHEN lower(COALESCE(e.subtitle,'')) LIKE lower(?) THEN 3
+            ELSE 4 END, e.title COLLATE NOCASE ASC, e.id ASC`;
+          orderArgs.push(q, q, `${q}%`, `${q}%`);
         }
       }
 
@@ -214,9 +225,9 @@ export const searchAcervo = createServerFn({ method: "POST" })
            FROM entities e
            LEFT JOIN entity_dedupe_index di ON di.entity_id=e.id
           WHERE ${where.join(" AND ")}
-          ORDER BY e.id ASC
+          ORDER BY ${orderBy}
           LIMIT ?`,
-        [...args, data.pageSize + 1],
+        [...args, ...orderArgs, data.pageSize + 1],
       );
 
       const hasNext = rows.length > data.pageSize;
