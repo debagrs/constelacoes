@@ -15,6 +15,12 @@ export type FederatedArtwork = {
   objectType: string | null;
 };
 
+export type FederatedSourceLink = {
+  name: string;
+  url: string;
+  note: string;
+};
+
 const inputSchema = z.object({
   query: z.string().trim().min(2).max(120),
   limit: z.number().int().min(4).max(48).default(24),
@@ -132,7 +138,94 @@ async function searchAic(query: string, limit: number): Promise<FederatedArtwork
     }));
 }
 
-async function searchCommons(query: string, limit: number): Promise<FederatedArtwork[]> {
+async function searchWikiArt(query: string, limit: number): Promise<FederatedArtwork[]> {
+  const accessKey = process.env.WIKIART_API_ACCESS_KEY?.trim();
+  if (!accessKey) return [];
+
+  type WikiArtPainting = {
+    id?: string | number;
+    title?: string;
+    artistName?: string;
+    completitionYear?: number | string | null;
+    completionYear?: number | string | null;
+    image?: string | null;
+    url?: string | null;
+    paintingUrl?: string | null;
+    genre?: string | null;
+    style?: string | null;
+  };
+  type WikiArtResponse = {
+    data?: WikiArtPainting[];
+    paintings?: WikiArtPainting[];
+  };
+
+  const params = new URLSearchParams({ term: query, authSessionKey: accessKey });
+  const response = await fetchJson<WikiArtResponse | WikiArtPainting[]>(
+    `https://www.wikiart.org/en/api/2/PaintingSearch?${params}`,
+  );
+  const paintings = Array.isArray(response)
+    ? response
+    : response.data ?? response.paintings ?? [];
+
+  return paintings
+    .filter((item) => item.image && (item.url || item.paintingUrl))
+    .slice(0, limit)
+    .map((item, index) => ({
+      id: `wikiart-${item.id ?? index}-${encodeURIComponent(item.title ?? query)}`,
+      title: item.title?.trim() || "Sem título",
+      artist: item.artistName?.trim() || null,
+      date: String(item.completitionYear ?? item.completionYear ?? "").trim() || null,
+      imageUrl: item.image ?? null,
+      thumbnailUrl: item.image ?? null,
+      sourceName: "WikiArt",
+      sourceUrl: item.url ?? item.paintingUrl ?? `https://www.wikiart.org/en/Search/${encodeURIComponent(query)}`,
+      license: "Consulte os direitos na página da obra",
+      culture: item.style?.trim() || null,
+      objectType: item.genre?.trim() || "Obra de arte",
+    }));
+}
+
+function normalizeEvidence(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const MORE_THAN_HUMAN_TERMS = [
+  "animal", "animals", "bird", "birds", "plant", "plants", "tree", "trees",
+  "flower", "flowers", "forest", "forests", "fungi", "fungus", "mushroom",
+  "ocean", "sea", "river", "water", "climate", "ecology", "ecosystem",
+  "landscape", "soil", "insect", "insects", "pollution", "anthropocene",
+];
+
+const ART_DESIGN_SIGNALS = [
+  "artwork", "work of art", "painting", "sculpture", "drawing", "printmaking",
+  "engraving", "lithograph", "photographic art", "installation", "performance",
+  "museum", "gallery", "artist", "architecture", "architectural", "design",
+  "ceramic art", "textile art", "public art", "visual art", "art collection",
+];
+
+function commonsIsCuratoriallyRelevant(
+  evidence: string,
+  originalQuery: string,
+  variant: string,
+) {
+  const text = normalizeEvidence(evidence);
+  const queryTokens = normalizeEvidence(`${originalQuery} ${variant}`)
+    .split(" ")
+    .filter((token) => token.length >= 3);
+  const queryMatches = queryTokens.some((token) => text.includes(token));
+  const natureSearch = queryTokens.some((token) => MORE_THAN_HUMAN_TERMS.includes(token));
+  const artSignal = ART_DESIGN_SIGNALS.some((signal) => text.includes(signal));
+  return queryMatches && (natureSearch || artSignal);
+}
+
+async function searchCommons(query: string, limit: number, originalQuery = query): Promise<FederatedArtwork[]> {
   type CommonsResponse = {
     query?: {
       pages?: Record<
@@ -174,6 +267,15 @@ async function searchCommons(query: string, limit: number): Promise<FederatedArt
       const info = page.imageinfo?.[0];
       if (!info?.url) return null;
       const meta = info.extmetadata ?? {};
+      const evidence = [
+        page.title,
+        meta.ObjectName?.value,
+        meta.ImageDescription?.value,
+        meta.Categories?.value,
+        meta.Artist?.value,
+        meta.Credit?.value,
+      ].filter(Boolean).join(" ");
+      if (!commonsIsCuratoriallyRelevant(evidence, originalQuery, query)) return null;
       return {
         id: `commons-${page.pageid}`,
         title: stripHtml(meta.ObjectName?.value) || page.title.replace(/^File:/, ""),
@@ -230,12 +332,13 @@ export const searchOpenCollections = createServerFn({ method: "POST" })
     const expanded = expandSearchTerms(data.query, 18);
     const preferred = toExternalSearchQuery(data.query);
     const variants = selectExternalVariants(data.query, expanded, preferred);
-    const perQueryPerSource = Math.max(3, Math.ceil(data.limit / Math.max(1, variants.length * 3)));
+    const perQueryPerSource = Math.max(3, Math.ceil(data.limit / Math.max(1, variants.length * 4)));
 
     const tasks = variants.flatMap((variant) => [
       { source: "met", variant, promise: searchMet(variant, perQueryPerSource) },
       { source: "aic", variant, promise: searchAic(variant, perQueryPerSource) },
-      { source: "commons", variant, promise: searchCommons(variant, perQueryPerSource) },
+      { source: "wikiart", variant, promise: searchWikiArt(variant, perQueryPerSource) },
+      { source: "commons", variant, promise: searchCommons(variant, perQueryPerSource, data.query) },
     ] as const);
 
     const settled = await Promise.allSettled(tasks.map((task) => task.promise));
@@ -255,5 +358,20 @@ export const searchOpenCollections = createServerFn({ method: "POST" })
       new Map(results.map((item) => [`${item.sourceName}:${item.id}`, item])).values(),
     );
 
-    return { results: unique.slice(0, data.limit), errors, queryVariants: variants };
+    const sourceLinks: FederatedSourceLink[] = [
+      {
+        name: "WikiArt",
+        url: `https://www.wikiart.org/en/Search/${encodeURIComponent(preferred)}`,
+        note: process.env.WIKIART_API_ACCESS_KEY
+          ? "Integração ativa pela API oficial."
+          : "Abra a pesquisa no WikiArt; a integração automática aguarda a chave oficial.",
+      },
+      {
+        name: "Wikimedia Commons",
+        url: `https://commons.wikimedia.org/wiki/Special:MediaSearch?type=image&search=${encodeURIComponent(preferred)}`,
+        note: "Resultados automáticos passam pela curadoria de Arte e Design ou Além do Antropoceno.",
+      },
+    ];
+
+    return { results: unique.slice(0, data.limit), errors, queryVariants: variants, sourceLinks };
   });
