@@ -9,6 +9,7 @@ import {
   GitMerge,
   ImageOff,
   SearchCheck,
+  Search,
   ShieldCheck,
   Tags,
 } from "lucide-react";
@@ -21,6 +22,8 @@ import {
   listDuplicateGroups,
   listQualityIssues,
   mergeDuplicateEntities,
+  searchQualityEntities,
+  setEntityImageUrl,
   setEntityQualityStatus,
   type CoverageCategory,
   type QualityIssue,
@@ -30,6 +33,7 @@ import { SiteFooter } from "@/components/SiteFooter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
 import {
   aicMetadataImageUrl,
   fetchCurrentAicImageUrl,
@@ -61,6 +65,8 @@ function CuradoriaQualidade() {
   const queryClient = useQueryClient();
   const [issue, setIssue] = useState<QualityIssue>("suspect_image");
   const [category, setCategory] = useState<CoverageCategory>("animalities");
+  const [searchText, setSearchText] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
 
   const dashboard = useQuery({
     queryKey: ["quality-dashboard"],
@@ -81,6 +87,11 @@ function CuradoriaQualidade() {
     queryKey: ["quality-category", category],
     queryFn: () => listCategoryCandidates({ data: { category, limit: 40 } }),
     enabled: isReviewer,
+  });
+  const searchResults = useQuery({
+    queryKey: ["quality-search", searchTerm],
+    queryFn: () => searchQualityEntities({ data: { query: searchTerm, limit: 24 } }),
+    enabled: isReviewer && searchTerm.length >= 2,
   });
 
   const refresh = async () => {
@@ -120,6 +131,16 @@ function CuradoriaQualidade() {
     onSuccess: async () => {
       toast.success("Pertinência à lente curatorial registrada.");
       await refresh();
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
+
+  const setImage = useMutation({
+    mutationFn: (input: { entityId: string; imageUrl: string }) => setEntityImageUrl({ data: input }),
+    onSuccess: async () => {
+      toast.success("Imagem inserida. Agora confira a fonte e a licença do registro.");
+      await refresh();
+      await queryClient.invalidateQueries({ queryKey: ["quality-search"] });
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -245,6 +266,43 @@ function CuradoriaQualidade() {
         </>
       )}
 
+      <section className="mt-10 rounded-2xl border bg-card p-5 sm:p-6">
+        <div className="flex items-center gap-2">
+          <Search className="h-5 w-5 text-primary" />
+          <h2 className="font-display text-2xl font-semibold">Buscar e ajustar um registro</h2>
+        </div>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
+          Procure pelo nome, subtítulo, país ou cultura. Nos resultados, você pode abrir a ficha ou colar diretamente a URL de uma imagem.
+        </p>
+        <form
+          className="mt-4 flex flex-col gap-2 sm:flex-row"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const value = searchText.trim();
+            if (value.length < 2) return toast.error("Digite pelo menos 2 caracteres.");
+            setSearchTerm(value);
+          }}
+        >
+          <Input
+            value={searchText}
+            onChange={(event) => setSearchText(event.target.value)}
+            placeholder="Ex.: Billie Zangewa"
+            aria-label="Buscar registro no acervo"
+            className="sm:max-w-xl"
+          />
+          <Button type="submit"><Search className="mr-2 h-4 w-4" />Buscar</Button>
+        </form>
+        {searchTerm && (
+          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {searchResults.isError ? <Empty text={searchResults.error instanceof Error ? searchResults.error.message : "Erro ao buscar."} /> :
+              searchResults.isLoading ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-72" />) :
+              searchResults.data?.length ? searchResults.data.map((entity) => (
+                <EntityAuditCard key={entity.id} entity={entity} onSetImage={(imageUrl) => setImage.mutate({ entityId: entity.id, imageUrl })} imageBusy={setImage.isPending} />
+              )) : <Empty text={`Nenhum resultado para “${searchTerm}”.`} />}
+          </div>
+        )}
+      </section>
+
       <section className="mt-12 rounded-2xl border bg-card p-5 sm:p-6">
         <div className="flex items-center gap-2">
           <SearchCheck className="h-5 w-5 text-primary" />
@@ -267,6 +325,8 @@ function CuradoriaQualidade() {
               <EntityAuditCard
                 key={entity.id}
                 entity={entity}
+                onSetImage={(imageUrl) => setImage.mutate({ entityId: entity.id, imageUrl })}
+                imageBusy={setImage.isPending}
                 footer={
                   <Button
                     size="sm"
@@ -300,6 +360,8 @@ function CuradoriaQualidade() {
               <EntityAuditCard
                 key={entity.id}
                 entity={entity}
+                onSetImage={(imageUrl) => setImage.mutate({ entityId: entity.id, imageUrl })}
+                imageBusy={setImage.isPending}
                 footer={
                   <div className="flex flex-wrap gap-2">
                     <Button size="sm" variant="outline" disabled={setStatus.isPending} onClick={() => setStatus.mutate({ entityId: entity.id, status: "verified" })}>
@@ -343,7 +405,7 @@ function CuradoriaQualidade() {
                 {group.entities.map((entity) => (
                   <div key={entity.id} className="overflow-hidden rounded-xl border bg-background">
                     <div className="grid grid-cols-[110px_1fr]">
-                      <Thumb image={entity.image_url} title={entity.title} />
+                      <Thumb entityId={entity.id} image={entity.image_url} source={entity.source_url} metadata={entity.metadata} title={entity.title} />
                       <div className="p-3">
                         <Link to="/acervo/$id" params={{ id: entity.id }} className="font-display text-lg font-semibold hover:underline">{entity.title}</Link>
                         <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{[entity.subtitle, entity.date_display, entity.country].filter(Boolean).join(" · ")}</p>
@@ -384,7 +446,17 @@ function Metric({ title, value, warning = false }: { title: string; value: numbe
   );
 }
 
-function EntityAuditCard({ entity, footer }: { entity: Record<string, unknown>; footer: React.ReactNode }) {
+function EntityAuditCard({
+  entity,
+  footer,
+  onSetImage,
+  imageBusy = false,
+}: {
+  entity: Record<string, unknown>;
+  footer?: React.ReactNode;
+  onSetImage?: (imageUrl: string) => void;
+  imageBusy?: boolean;
+}) {
   const image = typeof entity.image_url === "string" ? entity.image_url : null;
   const source = typeof entity.source_url === "string" ? entity.source_url : null;
   const metadata = entity.metadata;
@@ -414,9 +486,47 @@ function EntityAuditCard({ entity, footer }: { entity: Record<string, unknown>; 
           {source && <a href={source} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><ExternalLink className="h-3 w-3" />fonte</a>}
           {image && <a href={image} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><ExternalLink className="h-3 w-3" />imagem</a>}
         </div>
-        <div className="mt-4 border-t pt-4">{footer}</div>
+        {onSetImage && <ImageUrlEditor currentImage={image} busy={imageBusy} onSave={onSetImage} />}
+        {footer && <div className="mt-4 border-t pt-4">{footer}</div>}
       </div>
     </article>
+  );
+}
+
+function ImageUrlEditor({
+  currentImage,
+  busy,
+  onSave,
+}: {
+  currentImage: string | null;
+  busy: boolean;
+  onSave: (imageUrl: string) => void;
+}) {
+  const [value, setValue] = useState("");
+  return (
+    <form
+      className="mt-4 border-t pt-4"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const imageUrl = value.trim();
+        if (!/^https?:\/\//i.test(imageUrl)) return toast.error("Cole uma URL que comece com http:// ou https://.");
+        onSave(imageUrl);
+        setValue("");
+      }}
+    >
+      <label className="text-xs font-medium">Colar URL da imagem</label>
+      <div className="mt-2 flex gap-2">
+        <Input
+          value={value}
+          onChange={(event) => setValue(event.target.value)}
+          placeholder="https://…/imagem.jpg"
+          inputMode="url"
+          autoComplete="off"
+        />
+        <Button type="submit" size="sm" disabled={busy || !value.trim()}>{busy ? "Salvando…" : "Salvar"}</Button>
+      </div>
+      {currentImage && <p className="mt-1 text-[0.7rem] text-muted-foreground">Ao salvar, a imagem atual será substituída.</p>}
+    </form>
   );
 }
 
