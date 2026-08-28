@@ -546,7 +546,7 @@ function Thumb({
   large?: boolean;
 }) {
   const initialCandidates = useMemo(() => {
-    const values = [aicMetadataImageUrl(metadata), image]
+    const values = [image, aicMetadataImageUrl(metadata)]
       .filter((value): value is string => Boolean(value?.trim()));
     return [...new Set(values)];
   }, [image, metadata]);
