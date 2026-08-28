@@ -316,6 +316,10 @@ function selectExternalVariants(input: string, expanded: string[], preferred: st
   };
 
   add(preferred);
+  const inputWords = normalizeSearchVariant(input).split(" ").filter(Boolean);
+  if (inputWords.length >= 2 && normalizeSearchVariant(preferred) === normalizeSearchVariant(input)) {
+    return variants;
+  }
   if (/s$/i.test(preferred) && preferred.length > 3) add(preferred.replace(/s$/i, ""));
   add(input);
   expanded.forEach(add);
