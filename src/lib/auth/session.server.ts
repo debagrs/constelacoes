@@ -125,9 +125,14 @@ export async function requireUser(): Promise<SessionUser> {
   return user;
 }
 
+/**
+ * O allowlist CURATOR_EMAILS serve apenas para provisionar o papel curador.
+ * Depois de gravado no banco, o papel é a fonte de autorização. Isso evita
+ * derrubar curadores já provisionados quando um novo deployment não recebe a
+ * variável imediatamente ou quando a lista é atualizada na Vercel.
+ */
 export const isReviewer = (u: SessionUser) =>
-  isAuthorizedCuratorEmail(u.email) &&
-  (u.roles.includes("admin") || u.roles.includes("curador"));
+  u.roles.includes("admin") || u.roles.includes("curador");
 
 export async function requireReviewer(): Promise<SessionUser> {
   const user = await requireUser();
