@@ -169,7 +169,9 @@ function buildImageCandidates(options: {
   const derivedCommons = sourceLikeUrls.flatMap((url) => commonsDirectCandidates(url));
   const aicUrl = aicMetadataImageUrl(options.metadata);
 
-  return uniqueStrings([aicUrl, options.imageUrl, ...metadataUrls, ...derivedCommons]);
+  // A imagem escolhida pela curadoria sempre prevalece sobre imagens automáticas
+  // antigas ainda presentes nos metadados institucionais.
+  return uniqueStrings([options.imageUrl, aicUrl, ...metadataUrls, ...derivedCommons]);
 }
 
 async function resolveCommonsOriginal(rawUrl: string): Promise<string | null> {
@@ -247,7 +249,7 @@ function useResolvedImageCandidates(options: {
       const resolved = uniqueStrings([aicCurrent, ...resolvedLegacy]);
 
       if (!cancelled && resolved.length > 0) {
-        setCandidates((current) => uniqueStrings([...resolved, ...current]));
+        setCandidates((current) => uniqueStrings([...current, ...resolved]));
       }
     }
 
