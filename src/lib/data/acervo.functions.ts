@@ -142,7 +142,7 @@ export const searchAcervo = createServerFn({ method: "POST" })
       cursor: data.cursor ?? null,
     };
 
-    return cachedPublic(cacheKey("acervo:search:low-read:v2", normalized), 5 * 60_000, async () => {
+    return cachedPublic(cacheKey("acervo:search:curated:v3", normalized), 30_000, async () => {
       const where: string[] = [
         "e.status='published'",
         "e.image_url IS NOT NULL",
@@ -207,39 +207,17 @@ export const searchAcervo = createServerFn({ method: "POST" })
         "id" | "title" | "subtitle" | "entity_type" | "image_url" | "date_display" | "continent"
       >;
 
-      // O índice materializado já foi reconstruído pelo workflow de baixo consumo.
-      // Consultamos apenas as colunas que o EntityCard realmente renderiza, evitando
-      // transportar metadata/tags/themes grandes em cada página do acervo.
-      let rows: AcervoCardRow[];
-      try {
-        const indexedWhere = where.filter((clause) => clause !== canonicalClause);
-        rows = await query<AcervoCardRow>(
-          `SELECT e.id,e.title,e.subtitle,e.entity_type,e.image_url,e.date_display,e.continent
-             FROM entity_dedupe_index di
-             JOIN entities e ON e.id=di.entity_id
-            WHERE di.is_canonical=1
-              AND ${indexedWhere.join(" AND ")}
-            ORDER BY e.id ASC
-            LIMIT ?`,
-          [...args, data.pageSize + 1],
-        );
-      } catch (error) {
-        // Proteção de runtime: se o índice auxiliar estiver temporariamente incompatível,
-        // o acervo continua disponível por uma consulta direta e paginada em entities.
-        console.error(
-          "[Atlas/searchAcervo] consulta canônica falhou; usando fallback direto:",
-          error instanceof Error ? error.message : String(error),
-        );
-        const fallbackWhere = where.filter((clause) => clause !== canonicalClause);
-        rows = await query<AcervoCardRow>(
-          `SELECT e.id,e.title,e.subtitle,e.entity_type,e.image_url,e.date_display,e.continent
-             FROM entities e
-            WHERE ${fallbackWhere.join(" AND ")}
-            ORDER BY e.id ASC
-            LIMIT ?`,
-          [...args, data.pageSize + 1],
-        );
-      }
+      // LEFT JOIN mantém no acervo as obras recém-editadas pela curadoria, mesmo
+      // antes de uma reconstrução completa dos índices auxiliares.
+      const rows = await query<AcervoCardRow>(
+        `SELECT e.id,e.title,e.subtitle,e.entity_type,e.image_url,e.date_display,e.continent
+           FROM entities e
+           LEFT JOIN entity_dedupe_index di ON di.entity_id=e.id
+          WHERE ${where.join(" AND ")}
+          ORDER BY e.id ASC
+          LIMIT ?`,
+        [...args, data.pageSize + 1],
+      );
 
       const hasNext = rows.length > data.pageSize;
       const items = rows.slice(0, data.pageSize);
