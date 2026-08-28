@@ -267,8 +267,75 @@ export const listQualityIssues = createServerFn({ method: "POST" })
           JOIN entities e ON e.id=qi.entity_id
           LEFT JOIN entity_quality q ON q.entity_id=e.id
          WHERE qi.issue=? AND e.status IN ('published','review')
+           AND COALESCE(q.quality_status,'unreviewed') IN ('unreviewed','needs_review')
          ORDER BY CASE WHEN q.quality_status='needs_review' THEN 0 ELSE 1 END,e.updated_at DESC
          LIMIT ?`, [data.issue, data.limit]);
+  });
+
+const SearchQualityInput = z.object({
+  query: z.string().trim().min(2).max(120),
+  limit: z.number().int().min(1).max(50).default(24),
+});
+
+export const searchQualityEntities = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => SearchQualityInput.parse(d))
+  .handler(async ({ data }) => {
+    const { requireReviewer } = await import("@/lib/auth/session.server");
+    const { query } = await import("@/lib/turso/client.server");
+    await requireReviewer();
+    await ensureQualitySchema();
+    const term = `%${data.query.replace(/[%_]/g, "").toLowerCase()}%`;
+    return query<{
+      id: string; entity_type: string; title: string; subtitle: string | null;
+      date_display: string | null; country: string | null; culture: string | null;
+      image_url: string | null; source_url: string | null; image_license: string | null;
+      techniques: string; metadata: string; quality_status: QualityStatus | null;
+      quality_notes: string | null;
+    }>(`SELECT e.id,e.entity_type,e.title,e.subtitle,e.date_display,e.country,e.culture,
+               e.image_url,e.source_url,e.image_license,e.techniques,e.metadata,
+               q.quality_status,q.notes AS quality_notes
+          FROM entities e
+          LEFT JOIN entity_quality q ON q.entity_id=e.id
+         WHERE e.status IN ('published','review')
+           AND (lower(e.title) LIKE ? OR lower(COALESCE(e.subtitle,'')) LIKE ?
+             OR lower(COALESCE(e.culture,'')) LIKE ? OR lower(COALESCE(e.country,'')) LIKE ?)
+         ORDER BY CASE WHEN lower(e.title)=lower(?) THEN 0 ELSE 1 END,
+                  e.title COLLATE NOCASE ASC
+         LIMIT ?`, [term, term, term, term, data.query, data.limit]);
+  });
+
+const SetEntityImageInput = z.object({
+  entityId: z.string().min(1),
+  imageUrl: z.string().trim().url("Cole uma URL de imagem válida.").refine(
+    (value) => value.startsWith("https://") || value.startsWith("http://"),
+    "A URL precisa começar com http:// ou https://.",
+  ),
+});
+
+export const setEntityImageUrl = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => SetEntityImageInput.parse(d))
+  .handler(async ({ data }) => {
+    const { requireReviewer } = await import("@/lib/auth/session.server");
+    const { execute, queryOne, nowIso } = await import("@/lib/turso/client.server");
+    const reviewer = await requireReviewer();
+    await ensureQualitySchema();
+    const entity = await queryOne<{ id: string }>("SELECT id FROM entities WHERE id=?", [data.entityId]);
+    if (!entity) throw new Error("Registro não encontrado.");
+    const now = nowIso();
+    await execute(
+      `UPDATE entities
+          SET image_url=?, open_image=1, updated_at=?
+        WHERE id=?`,
+      [data.imageUrl, now, data.entityId],
+    );
+    await execute(
+      `INSERT INTO entity_quality(entity_id,quality_status,reviewer_id,notes,reviewed_at,updated_at)
+       VALUES (?,'needs_review',?,'Imagem inserida manualmente por URL; conferir fonte e licença.',?,?)
+       ON CONFLICT(entity_id) DO UPDATE SET reviewer_id=excluded.reviewer_id,
+         notes=excluded.notes,reviewed_at=excluded.reviewed_at,updated_at=excluded.updated_at`,
+      [data.entityId, reviewer.id, now, now],
+    );
+    return { ok: true };
   });
 
 export const listDuplicateGroups = createServerFn({ method: "GET" }).handler(async () => {
