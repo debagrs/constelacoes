@@ -316,25 +316,39 @@ export const setEntityImageUrl = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => SetEntityImageInput.parse(d))
   .handler(async ({ data }) => {
     const { requireReviewer } = await import("@/lib/auth/session.server");
-    const { execute, queryOne, nowIso } = await import("@/lib/turso/client.server");
+    const { batch, queryOne, nowIso } = await import("@/lib/turso/client.server");
     const reviewer = await requireReviewer();
     await ensureQualitySchema();
     const entity = await queryOne<{ id: string }>("SELECT id FROM entities WHERE id=?", [data.entityId]);
     if (!entity) throw new Error("Registro não encontrado.");
     const now = nowIso();
-    await execute(
-      `UPDATE entities
-          SET image_url=?, open_image=1, updated_at=?
-        WHERE id=?`,
-      [data.imageUrl, now, data.entityId],
-    );
-    await execute(
-      `INSERT INTO entity_quality(entity_id,quality_status,reviewer_id,notes,reviewed_at,updated_at)
-       VALUES (?,'needs_review',?,'Imagem inserida manualmente por URL; conferir fonte e licença.',?,?)
-       ON CONFLICT(entity_id) DO UPDATE SET reviewer_id=excluded.reviewer_id,
-         notes=excluded.notes,reviewed_at=excluded.reviewed_at,updated_at=excluded.updated_at`,
-      [data.entityId, reviewer.id, now, now],
-    );
+    await batch([
+      {
+        sql: `UPDATE entities
+                 SET image_url=?, open_image=1, updated_at=?
+               WHERE id=?`,
+        args: [data.imageUrl, now, data.entityId],
+      },
+      {
+        sql: `INSERT INTO entity_dedupe_index(entity_id,image_key,signature_key,is_canonical)
+              VALUES (?,lower(trim(?)),NULL,1)
+              ON CONFLICT(entity_id) DO UPDATE SET
+                image_key=excluded.image_key,is_canonical=1`,
+        args: [data.entityId, data.imageUrl],
+      },
+      {
+        sql: `DELETE FROM atlas_quality_issues
+               WHERE entity_id=? AND issue='suspect_image'`,
+        args: [data.entityId],
+      },
+      {
+        sql: `INSERT INTO entity_quality(entity_id,quality_status,reviewer_id,notes,reviewed_at,updated_at)
+              VALUES (?,'needs_review',?,'Imagem inserida manualmente por URL; conferir fonte e licença.',?,?)
+              ON CONFLICT(entity_id) DO UPDATE SET reviewer_id=excluded.reviewer_id,
+                notes=excluded.notes,reviewed_at=excluded.reviewed_at,updated_at=excluded.updated_at`,
+        args: [data.entityId, reviewer.id, now, now],
+      },
+    ]);
     return { ok: true };
   });
 
