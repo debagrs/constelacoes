@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Globe2, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, ExternalLink, Globe2, Search } from "lucide-react";
 import { getAcervoStats, searchAcervo } from "@/lib/data/acervo.functions";
 import { useI18n } from "@/lib/i18n";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -22,7 +22,7 @@ export const Route = createFileRoute("/acervo/")({
       {
         name: "description",
         content:
-          "Navegue pelo acervo curado do Atlas Planetário e pesquise simultaneamente em acervos abertos internacionais.",
+          "Navegue pelo acervo curado do Atlas Planetário e pesquise em acervos museológicos internacionais.",
       },
     ],
   }),
@@ -141,7 +141,7 @@ function AcervoPage() {
                   value={term}
                   onChange={(event) => setTerm(event.target.value)}
                   onKeyDown={(event) => event.key === "Enter" && searchPlanet()}
-                  placeholder="Pesquise no Atlas e nos acervos do planeta…"
+                  placeholder="Pesquise no Atlas e em museus de arte…"
                   className="pl-9"
                 />
               </div>
@@ -150,11 +150,11 @@ function AcervoPage() {
                 disabled={externalSearch.isPending || term.trim().length < 2}
               >
                 <Globe2 className="mr-2 h-4 w-4" />
-                {externalSearch.isPending ? "Buscando…" : "Buscar no planeta"}
+                {externalSearch.isPending ? "Buscando…" : "Buscar em museus"}
               </Button>
             </div>
             <p className="max-w-2xl text-xs text-muted-foreground">
-              A busca do Atlas é paginada no servidor para continuar rápida com dezenas de milhares de registros. Fichas sem imagem permanecem documentadas no banco, mas não ocupam cards no acervo visual. O botão também consulta acervos abertos externos.
+              A busca do Atlas é paginada no servidor para continuar rápida com dezenas de milhares de registros. Fichas sem imagem permanecem documentadas no banco, mas não ocupam cards no acervo visual. O botão consulta Art Institute of Chicago, Metropolitan Museum of Art, WikiArt e Wikimedia Commons com filtros curatoriais.
             </p>
 
             <div>
@@ -221,20 +221,45 @@ function AcervoPage() {
             <section className="mb-12 rounded-2xl border border-primary/20 bg-primary/5 p-5 sm:p-6">
               <div className="flex items-center gap-2 text-primary">
                 <Globe2 className="h-5 w-5" />
-                <h2 className="font-display text-2xl font-semibold">Resultados em acervos abertos</h2>
+                <h2 className="font-display text-2xl font-semibold">Resultados em acervos curados</h2>
               </div>
               <p className="mt-2 text-sm text-muted-foreground">
-                As imagens permanecem nas instituições de origem; o Atlas relaciona seus links, créditos e licenças.
+                As imagens permanecem nas instituições de origem. No Wikimedia Commons, resultados precisam demonstrar pertinência a Arte e Design ou ao Além do Antropoceno.
               </p>
               <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
                 {externalSearch.data.results.map((artwork) => (
                   <ExternalArtworkCard key={artwork.id} artwork={artwork} />
                 ))}
               </div>
+              {externalSearch.data.sourceLinks?.length ? (
+                <div className="mt-6 flex flex-wrap gap-2 border-t border-primary/15 pt-4">
+                  {externalSearch.data.sourceLinks.map((source) => (
+                    <a
+                      key={source.name}
+                      href={source.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={source.note}
+                      className="inline-flex items-center gap-1 rounded-full border bg-background px-3 py-1.5 text-xs font-medium hover:border-primary"
+                    >
+                      Pesquisar também no {source.name}<ExternalLink className="h-3 w-3" />
+                    </a>
+                  ))}
+                </div>
+              ) : null}
             </section>
           ) : externalSearch.isSuccess ? (
             <section className="mb-12 rounded-2xl border border-border p-6 text-sm text-muted-foreground">
-              Nenhum resultado aberto foi encontrado para “{term}”.
+              <p>Nenhum resultado automático passou pelos filtros curatoriais para “{term}”.</p>
+              {externalSearch.data?.sourceLinks?.length ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {externalSearch.data.sourceLinks.map((source) => (
+                    <a key={source.name} href={source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium hover:border-primary">
+                      Pesquisar diretamente no {source.name}<ExternalLink className="h-3 w-3" />
+                    </a>
+                  ))}
+                </div>
+              ) : null}
             </section>
           ) : null}
 
