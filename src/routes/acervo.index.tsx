@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, ExternalLink, Globe2, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { getAcervoStats, searchAcervo } from "@/lib/data/acervo.functions";
 import { useI18n } from "@/lib/i18n";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -53,15 +53,6 @@ function AcervoPage() {
   const cursor = cursors[page] ?? null;
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setQ(term.trim());
-      setPage(1);
-      setCursors({ 1: null });
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [term]);
-
-  useEffect(() => {
     setPage(1);
     setCursors({ 1: null });
   }, [type, lens]);
@@ -90,9 +81,12 @@ function AcervoPage() {
       await searchOpenCollections({ data: { query: searchTerm, limit: 36 } }),
   });
 
-  function searchPlanet() {
+  function searchAll() {
     const searchTerm = term.trim();
     if (searchTerm.length < 2) return;
+    setQ(searchTerm);
+    setPage(1);
+    setCursors({ 1: null });
     externalSearch.mutate(searchTerm);
   }
 
@@ -116,46 +110,36 @@ function AcervoPage() {
             <h1 className="font-display text-3xl font-semibold text-foreground sm:text-4xl">
               {t("acervo.title")}
             </h1>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {selectionTotal !== null
-                ? `${selectionTotal.toLocaleString("pt-BR")} ${t("acervo.subtitle")} nesta seleção`
-                : `${t("acervo.subtitle")} · resultados paginados sem varrer o banco para contar`}
+            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+              Explore artistas, obras, movimentos, conceitos e visualidades em diferentes tempos, territórios e perspectivas.
             </p>
-            {stats.data ? (
-              <p className="mt-1 max-w-4xl text-xs leading-5 text-muted-foreground">
-                Acervo geral: <strong>{stats.data.uniqueImages.toLocaleString("pt-BR")}</strong> imagens únicas · {" "}
-                <strong>{stats.data.published.toLocaleString("pt-BR")}</strong> registros documentais publicados.
-                {stats.data.aicPublicDomain > 0 ? (
-                  <> AIC: <strong>{stats.data.aicPublicDomain.toLocaleString("pt-BR")}</strong> obras em domínio público sincronizadas, {" "}
-                  <strong>{stats.data.aicWithImage.toLocaleString("pt-BR")}</strong> com imagem IIIF.</>
-                ) : null}
-              </p>
-            ) : null}
           </header>
 
           <div className="mb-8 space-y-4">
-            <div className="flex max-w-2xl flex-col gap-2 sm:flex-row">
+            <form
+              className="flex max-w-2xl flex-col gap-2 sm:flex-row"
+              onSubmit={(event) => {
+                event.preventDefault();
+                searchAll();
+              }}
+            >
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={term}
                   onChange={(event) => setTerm(event.target.value)}
-                  onKeyDown={(event) => event.key === "Enter" && searchPlanet()}
-                  placeholder="Pesquise no Atlas e em museus de arte…"
+                  placeholder="Busque artistas, obras, movimentos ou conceitos…"
                   className="pl-9"
                 />
               </div>
               <Button
-                onClick={searchPlanet}
+                type="submit"
                 disabled={externalSearch.isPending || term.trim().length < 2}
               >
-                <Globe2 className="mr-2 h-4 w-4" />
-                {externalSearch.isPending ? "Buscando…" : "Buscar em museus"}
+                <Search className="mr-2 h-4 w-4" />
+                {externalSearch.isPending ? "Buscando…" : "Buscar"}
               </Button>
-            </div>
-            <p className="max-w-2xl text-xs text-muted-foreground">
-              A busca do Atlas é paginada no servidor para continuar rápida com dezenas de milhares de registros. Fichas sem imagem permanecem documentadas no banco, mas não ocupam cards no acervo visual. O botão consulta Art Institute of Chicago, Metropolitan Museum of Art, WikiArt e Wikimedia Commons com filtros curatoriais.
-            </p>
+            </form>
 
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -200,7 +184,7 @@ function AcervoPage() {
             <section className="mb-10 rounded-2xl border border-destructive/30 bg-destructive/5 p-6">
               <h2 className="font-display text-xl font-semibold">Não foi possível carregar o acervo</h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                A conexão com o banco está configurada. Tente novamente; se a leitura falhar, o servidor registra o erro técnico nos Runtime Logs sem expor credenciais.
+                Não foi possível concluir a busca agora. Tente novamente em instantes.
               </p>
               <Button className="mt-4" variant="outline" onClick={() => refetch()}>
                 Tentar novamente
@@ -210,56 +194,10 @@ function AcervoPage() {
 
           {databaseEmpty ? (
             <section className="mb-10 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-6">
-              <h2 className="font-display text-xl font-semibold">O banco está conectado, mas o acervo está vazio</h2>
+              <h2 className="font-display text-xl font-semibold">Acervo temporariamente indisponível</h2>
               <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-                Execute primeiro “Preparar Atlas — baixo consumo” e, depois, “Sincronizar acervo AIC — baixo consumo” no GitHub Actions.
+                Estamos preparando novamente as imagens e registros. Volte em breve.
               </p>
-            </section>
-          ) : null}
-
-          {externalSearch.data?.results?.length ? (
-            <section className="mb-12 rounded-2xl border border-primary/20 bg-primary/5 p-5 sm:p-6">
-              <div className="flex items-center gap-2 text-primary">
-                <Globe2 className="h-5 w-5" />
-                <h2 className="font-display text-2xl font-semibold">Resultados em acervos curados</h2>
-              </div>
-              <p className="mt-2 text-sm text-muted-foreground">
-                As imagens permanecem nas instituições de origem. No Wikimedia Commons, resultados precisam demonstrar pertinência a Arte e Design ou ao Além do Antropoceno.
-              </p>
-              <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
-                {externalSearch.data.results.map((artwork) => (
-                  <ExternalArtworkCard key={artwork.id} artwork={artwork} />
-                ))}
-              </div>
-              {externalSearch.data.sourceLinks?.length ? (
-                <div className="mt-6 flex flex-wrap gap-2 border-t border-primary/15 pt-4">
-                  {externalSearch.data.sourceLinks.map((source) => (
-                    <a
-                      key={source.name}
-                      href={source.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      title={source.note}
-                      className="inline-flex items-center gap-1 rounded-full border bg-background px-3 py-1.5 text-xs font-medium hover:border-primary"
-                    >
-                      Pesquisar também no {source.name}<ExternalLink className="h-3 w-3" />
-                    </a>
-                  ))}
-                </div>
-              ) : null}
-            </section>
-          ) : externalSearch.isSuccess ? (
-            <section className="mb-12 rounded-2xl border border-border p-6 text-sm text-muted-foreground">
-              <p>Nenhum resultado automático passou pelos filtros curatoriais para “{term}”.</p>
-              {externalSearch.data?.sourceLinks?.length ? (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {externalSearch.data.sourceLinks.map((source) => (
-                    <a key={source.name} href={source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs font-medium hover:border-primary">
-                      Pesquisar diretamente no {source.name}<ExternalLink className="h-3 w-3" />
-                    </a>
-                  ))}
-                </div>
-              ) : null}
             </section>
           ) : null}
 
@@ -311,6 +249,20 @@ function AcervoPage() {
               )}
             </>
           )}
+
+          {q && externalSearch.data?.results?.length ? (
+            <section className="mt-14 border-t border-border pt-10">
+              <h2 className="font-display text-2xl font-semibold">Outras descobertas</h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Amplie a pesquisa em coleções internacionais relacionadas a “{q}”.
+              </p>
+              <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+                {externalSearch.data.results.map((artwork) => (
+                  <ExternalArtworkCard key={artwork.id} artwork={artwork} />
+                ))}
+              </div>
+            </section>
+          ) : null}
         </div>
       </main>
       <SiteFooter />
