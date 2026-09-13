@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { labelForEntityType } from "@/lib/constants";
+import { CuratorialEntityEditor } from "@/components/CuratorialEntityEditor";
 
 export const Route = createFileRoute("/_authenticated/curadoria/imagens")({
   component: CuradoriaImagens,
@@ -164,6 +165,7 @@ function CuradoriaImagens() {
                       .filter(Boolean)
                       .join(" · ")}
                   </p>
+                  <div className="mt-3"><CuratorialEntityEditor entityId={g.entity.id} /></div>
                 </div>
               </div>
 
