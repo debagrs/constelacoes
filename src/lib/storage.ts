@@ -13,9 +13,9 @@ export async function resolveStorageUrl(
   bucket: string = ATLAS_BUCKET,
 ): Promise<string | null> {
   if (!value) return null;
-  if (value.startsWith("http://") || value.startsWith("https://")) return value;
+  if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("data:image/")) return value;
   // Sem provedor de arquivos configurado após a migração para o Turso:
-  // apenas URLs externas (domínio público / IIIF) são resolvidas.
+  // URLs externas e imagens compactadas incorporadas à contribuição são resolvidas diretamente.
   void bucket;
   return null;
 }
@@ -26,7 +26,7 @@ export function useStorageUrl(
   bucket: string = ATLAS_BUCKET,
 ): string | null {
   const [url, setUrl] = useState<string | null>(
-    value && value.startsWith("http") ? value : null,
+    value && (value.startsWith("http") || value.startsWith("data:image/")) ? value : null,
   );
   useEffect(() => {
     let active = true;
