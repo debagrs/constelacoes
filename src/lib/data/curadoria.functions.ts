@@ -1,183 +1,78 @@
-/**
- * Fila curatorial de imagens (aprovação/rejeição) sobre o Turso.
- * As funções SQL do Postgres viraram lógica de servidor aqui.
- */
-import { createServerFn } from "@tanstack/react-start";
-import { z } from "zod";
+const MAX_INPUT_BYTES = 12 * 1024 * 1024;
+const TARGET_BYTES = 450 * 1024;
+const MAX_EDGE = 1600;
 
-export const listImageQueue = createServerFn({ method: "GET" }).handler(async () => {
-  const { requireReviewer } = await import("@/lib/auth/session.server");
-  const { query } = await import("@/lib/turso/client.server");
-  await requireReviewer();
-
-  const suggestions = await query<{
-    id: string;
-    entity_id: string;
-    rank: number;
-    image_url: string;
-    thumbnail_url: string | null;
-    source_url: string | null;
-    wikidata_qid: string | null;
-    candidate_title: string | null;
-    candidate_description: string | null;
-    status: string;
-    title: string;
-    subtitle: string | null;
-    entity_type: string;
-    date_display: string | null;
-    culture: string | null;
-  }>(
-    `SELECT s.id, s.entity_id, s.rank, s.image_url, s.thumbnail_url, s.source_url,
-            s.wikidata_qid, s.candidate_title, s.candidate_description, s.status,
-            e.title, e.subtitle, e.entity_type, e.date_display, e.culture
-       FROM image_suggestions s
-       JOIN entities e ON e.id = s.entity_id
-      WHERE s.status = 'pending'
-      ORDER BY e.title COLLATE NOCASE ASC, s.rank ASC`,
-  );
-
-  const grouped = new Map<
-    string,
-    {
-      entity: {
-        id: string;
-        title: string;
-        subtitle: string | null;
-        entity_type: string;
-        date_display: string | null;
-        culture: string | null;
-      };
-      suggestions: {
-        id: string;
-        entity_id: string;
-        rank: number;
-        image_url: string;
-        thumbnail_url: string | null;
-        source_url: string | null;
-        wikidata_qid: string | null;
-        candidate_title: string | null;
-        candidate_description: string | null;
-        status: string;
-      }[];
-    }
-  >();
-
-  for (const s of suggestions) {
-    const g = grouped.get(s.entity_id) ?? {
-      entity: {
-        id: s.entity_id,
-        title: s.title,
-        subtitle: s.subtitle,
-        entity_type: s.entity_type,
-        date_display: s.date_display,
-        culture: s.culture,
-      },
-      suggestions: [],
+function loadImage(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
     };
-    g.suggestions.push({
-      id: s.id,
-      entity_id: s.entity_id,
-      rank: s.rank,
-      image_url: s.image_url,
-      thumbnail_url: s.thumbnail_url,
-      source_url: s.source_url,
-      wikidata_qid: s.wikidata_qid,
-      candidate_title: s.candidate_title,
-      candidate_description: s.candidate_description,
-      status: s.status,
-    });
-    grouped.set(s.entity_id, g);
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Não foi possível ler esta imagem."));
+    };
+    image.src = url;
+  });
+}
+
+function canvasBlob(canvas: HTMLCanvasElement, quality: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => blob ? resolve(blob) : reject(new Error("Não foi possível compactar a imagem.")),
+      "image/webp",
+      quality,
+    );
+  });
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Não foi possível preparar a imagem para envio."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Compacta uma imagem no navegador antes de enviá-la ao Turso.
+ * Assim o formulário público aceita arquivo sem depender de um storage externo.
+ */
+export async function compressContributionImage(file: File): Promise<string> {
+  if (!file.type.startsWith("image/")) throw new Error("Escolha um arquivo de imagem.");
+  if (file.size > MAX_INPUT_BYTES) throw new Error("A imagem original pode ter no máximo 12 MB.");
+
+  const image = await loadImage(file);
+  const scale = Math.min(1, MAX_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
+  let width = Math.max(1, Math.round(image.naturalWidth * scale));
+  let height = Math.max(1, Math.round(image.naturalHeight * scale));
+  let quality = 0.86;
+  let blob: Blob | null = null;
+
+  for (let attempt = 0; attempt < 7; attempt += 1) {
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d", { alpha: true });
+    if (!ctx) throw new Error("Seu navegador não conseguiu preparar a imagem.");
+    ctx.drawImage(image, 0, 0, width, height);
+    blob = await canvasBlob(canvas, quality);
+    if (blob.size <= TARGET_BYTES) break;
+    quality = Math.max(0.5, quality - 0.09);
+    if (attempt >= 3) {
+      width = Math.max(1, Math.round(width * 0.86));
+      height = Math.max(1, Math.round(height * 0.86));
+    }
   }
 
-  return Array.from(grouped.values());
-});
+  if (!blob) throw new Error("Não foi possível preparar a imagem.");
+  if (blob.size > 650 * 1024) throw new Error("A imagem continua muito grande após a compactação. Escolha outra foto.");
+  return blobToDataUrl(blob);
+}
 
-export const approveImageSuggestion = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) =>
-    z.object({ suggestionId: z.string().min(1) }).parse(d),
-  )
-  .handler(async ({ data }) => {
-    const { requireReviewer } = await import("@/lib/auth/session.server");
-    const { queryOne, batch, nowIso } = await import("@/lib/turso/client.server");
-    const { toRecord } = await import("@/lib/turso/rows");
-    const user = await requireReviewer();
-
-    const s = await queryOne<{
-      id: string;
-      entity_id: string;
-      image_url: string;
-      source_url: string | null;
-      license: string | null;
-      wikidata_qid: string | null;
-    }>(
-      "SELECT id, entity_id, image_url, source_url, license, wikidata_qid FROM image_suggestions WHERE id = ?",
-      [data.suggestionId],
-    );
-    if (!s) throw new Error("Sugestão não encontrada.");
-
-    const ent = await queryOne<{ metadata: string | null }>(
-      "SELECT metadata FROM entities WHERE id = ?",
-      [s.entity_id],
-    );
-    const now = nowIso();
-    const metadata = {
-      ...toRecord(ent?.metadata),
-      imagem_fonte: s.source_url ?? "",
-      wikidata_qid: s.wikidata_qid ?? "",
-      licenca_texto: s.license ?? "Domínio público",
-      status_metadados: "completo",
-      aprovado_por: user.id,
-      aprovado_em: now,
-    };
-
-    await batch([
-      {
-        sql: `UPDATE entities
-                 SET image_url = ?, source_url = COALESCE(?, source_url),
-                     image_license = COALESCE(?, image_license, 'Domínio público'),
-                     open_image = 1, metadata = ?, updated_at = ?
-               WHERE id = ?`,
-        args: [
-          s.image_url,
-          s.source_url,
-          s.license,
-          JSON.stringify(metadata),
-          now,
-          s.entity_id,
-        ],
-      },
-      {
-        sql: `UPDATE image_suggestions SET status = 'approved', reviewed_by = ?, reviewed_at = ? WHERE id = ?`,
-        args: [user.id, now, s.id],
-      },
-      {
-        sql: `UPDATE image_suggestions SET status = 'rejected', reviewed_by = ?, reviewed_at = ?
-               WHERE entity_id = ? AND id <> ? AND status = 'pending'`,
-        args: [user.id, now, s.entity_id, s.id],
-      },
-    ]);
-
-    return { ok: true };
-  });
-
-export const rejectImageSuggestion = createServerFn({ method: "POST" })
-  .inputValidator((d: unknown) =>
-    z
-      .object({
-        suggestionId: z.string().min(1),
-        notes: z.string().max(1000).optional(),
-      })
-      .parse(d),
-  )
-  .handler(async ({ data }) => {
-    const { requireReviewer } = await import("@/lib/auth/session.server");
-    const { execute, nowIso } = await import("@/lib/turso/client.server");
-    const user = await requireReviewer();
-    await execute(
-      `UPDATE image_suggestions
-          SET status = 'rejected', reviewed_by = ?, reviewed_at = ?, notes = COALESCE(?, notes)
-        WHERE id = ?`,
-      [user.id, nowIso(), data.notes ?? null, data.suggestionId],
-    );
-    return { ok: true };
-  });
+export function isInlineImage(value: string | null | undefined): boolean {
+  return Boolean(value?.startsWith("data:image/"));
+}
