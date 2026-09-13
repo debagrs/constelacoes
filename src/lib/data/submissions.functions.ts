@@ -15,7 +15,10 @@ const submissionSchema = z.object({
   country: z.string().trim().max(120).optional().default(""),
   continent: z.string().trim().max(120).optional().default(""),
   culture: z.string().trim().max(240).optional().default(""),
-  imageUrl: z.string().url().max(2000).optional().or(z.literal("")),
+  imageUrl: z.string().max(1_300_000).optional().default("").refine(
+    (value) => !value || /^https?:\/\//i.test(value) || /^data:image\/(?:webp|png|jpe?g);base64,/i.test(value),
+    "Use uma URL de imagem válida ou envie uma foto pelo formulário.",
+  ),
   imageSourceUrl: z.string().url().max(2000).optional().or(z.literal("")),
   imageLicense: z.string().trim().max(160).optional().default(""),
   sourceUrls: z.array(z.string().url().max(2000)).max(10).default([]),
@@ -125,4 +128,51 @@ export const reviewSubmission = createServerFn({ method: "POST" })
       { sql: `UPDATE submissions SET status = 'approved', reviewer_notes = ?, reviewed_by = ?, reviewed_at = ?, published_entity_id = ?, updated_at = ? WHERE id = ?`, args: [data.notes || null, reviewer.id, now, entityId, now, data.id] },
     ]);
     return { ok: true, entityId };
+  });
+
+const pendingSubmissionUpdateSchema = submissionSchema.omit({ consentPublication: true }).extend({
+  id: z.string().uuid(),
+});
+
+export const updatePendingSubmission = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => pendingSubmissionUpdateSchema.parse(d))
+  .handler(async ({ data }) => {
+    const { requireReviewer } = await import("@/lib/auth/session.server");
+    const { execute, nowIso } = await import("@/lib/turso/client.server");
+    await requireReviewer();
+    await execute(
+      `UPDATE submissions SET
+         submission_type=?, title=?, artist_name=?, subtitle=?, description=?, date_display=?,
+         location=?, country=?, continent=?, culture=?, image_url=?, image_source_url=?, image_license=?,
+         source_urls=?, tags=?, materials=?, techniques=?, sensitive_metadata=?, poetic_metadata=?,
+         submitter_name=?, submitter_email=?, submitter_relation=?, updated_at=?
+       WHERE id=? AND status IN ('pending','needs_changes')`,
+      [
+        data.submissionType,
+        data.title,
+        data.artistName || null,
+        data.subtitle || null,
+        data.description,
+        data.dateDisplay || null,
+        data.location || null,
+        data.country || null,
+        data.continent || null,
+        data.culture || null,
+        data.imageUrl || null,
+        data.imageSourceUrl || null,
+        data.imageLicense || null,
+        JSON.stringify(data.sourceUrls),
+        JSON.stringify(data.tags),
+        JSON.stringify(data.materials),
+        JSON.stringify(data.techniques),
+        JSON.stringify(data.sensitiveMetadata),
+        JSON.stringify(data.poeticMetadata),
+        data.submitterName,
+        data.submitterEmail,
+        data.submitterRelation || null,
+        nowIso(),
+        data.id,
+      ],
+    );
+    return { ok: true };
   });
