@@ -34,6 +34,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
+import { CuratorialEntityEditor } from "@/components/CuratorialEntityEditor";
 import {
   aicMetadataImageUrl,
   fetchCurrentAicImageUrl,
@@ -410,6 +411,7 @@ function CuradoriaQualidade() {
                         <Link to="/acervo/$id" params={{ id: entity.id }} className="font-display text-lg font-semibold hover:underline">{entity.title}</Link>
                         <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{[entity.subtitle, entity.date_display, entity.country].filter(Boolean).join(" · ")}</p>
                         {entity.source_url && <a href={entity.source_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-primary hover:underline"><ExternalLink className="h-3 w-3" />fonte</a>}
+                        <div className="mt-3"><CuratorialEntityEditor entityId={entity.id} /></div>
                       </div>
                     </div>
                     <div className="border-t p-3">
@@ -486,6 +488,7 @@ function EntityAuditCard({
           {source && <a href={source} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><ExternalLink className="h-3 w-3" />fonte</a>}
           {image && <a href={image} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline"><ExternalLink className="h-3 w-3" />imagem</a>}
         </div>
+        <div className="mt-4"><CuratorialEntityEditor entityId={String(entity.id ?? "")} /></div>
         {onSetImage && <ImageUrlEditor currentImage={image} busy={imageBusy} onSave={onSetImage} />}
         {footer && <div className="mt-4 border-t pt-4">{footer}</div>}
       </div>
