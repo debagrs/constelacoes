@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { labelForEntityType } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { entityImageSrc } from "@/lib/image-url";
 
 const searchSchema = z.object({ regiao: z.string().optional() });
 
@@ -459,7 +460,7 @@ function MapItems({
               >
                 {it.image_url ? (
                   <img
-                    src={it.image_url}
+                    src={entityImageSrc(it.id, it.image_url) ?? undefined}
                     alt={it.title}
                     loading="lazy"
                     className="aspect-[4/3] w-full object-cover transition-transform group-hover:scale-105"
