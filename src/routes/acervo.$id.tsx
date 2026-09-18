@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { labelForEntityType, labelForRelationType } from "@/lib/constants";
+import { entityImageSrc } from "@/lib/image-url";
 import {
   aicMetadataImageUrl,
   fetchCurrentAicImageUrl,
@@ -169,15 +170,12 @@ function buildImageCandidates(options: {
   const derivedCommons = sourceLikeUrls.flatMap((url) => commonsDirectCandidates(url));
   const aicUrl = aicMetadataImageUrl(options.metadata);
 
-  // Fotos enviadas pelo formulário ficam armazenadas como data URL no Turso.
-  // Servi-las por uma rota HTTP evita payloads base64 frágeis no SSR/hidratação.
-  const primaryImage = options.imageUrl?.startsWith("data:image/") && options.entityId
-    ? `/api/media?entityId=${encodeURIComponent(options.entityId)}`
+  // A imagem escolhida pela curadoria sempre prevalece. Uploads locais e links
+  // compartilhados do Google Photos passam pela rota de mídia do próprio Atlas.
+  const preferredImage = options.entityId
+    ? entityImageSrc(options.entityId, options.imageUrl)
     : options.imageUrl;
-
-  // A imagem escolhida pela curadoria sempre prevalece sobre imagens automáticas
-  // antigas ainda presentes nos metadados institucionais.
-  return uniqueStrings([primaryImage, aicUrl, ...metadataUrls, ...derivedCommons]);
+  return uniqueStrings([preferredImage, aicUrl, ...metadataUrls, ...derivedCommons]);
 }
 
 async function resolveCommonsOriginal(rawUrl: string): Promise<string | null> {
