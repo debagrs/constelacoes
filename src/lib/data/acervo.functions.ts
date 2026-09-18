@@ -46,19 +46,6 @@ const PRIMARY_LENS_FACET = {
 const PRIMARY_SPECIAL_FACETS = Object.values(PRIMARY_LENS_FACET);
 const canonicalClause = "(di.entity_id IS NULL OR di.is_canonical=1)";
 
-function publicEntityImageUrl(entityId: string, imageUrl: string | null | undefined) {
-  if (!imageUrl) return null;
-  const value = imageUrl.trim();
-  if (!value) return null;
-  return value.startsWith("data:image/")
-    ? `/api/media?entityId=${encodeURIComponent(entityId)}`
-    : value;
-}
-
-function withPublicImage<T extends { id: string; image_url: string | null }>(row: T): T {
-  return { ...row, image_url: publicEntityImageUrl(row.id, row.image_url) };
-}
-
 async function hasNativeFts(queryOne: any) {
   try {
     const row = await queryOne<{ enabled: number }>(
@@ -74,8 +61,8 @@ export const listAcervo = createServerFn({ method: "GET" }).handler(async () => 
   const { query } = await import("@/lib/turso/client.server");
   const { cachedPublic } = await import("@/lib/server-cache.server");
 
-  return cachedPublic<AcervoListRow[]>("acervo:list:low-read:v1", 10 * 60_000, async () => {
-    const rows = await query<AcervoListRow>(
+  return cachedPublic<AcervoListRow[]>("acervo:list:low-read:v1", 10 * 60_000, async () =>
+    query<AcervoListRow>(
       `SELECT e.id,e.title,e.subtitle,e.entity_type,e.image_url,e.date_display,
               e.continent,e.country,e.culture,e.tags,e.themes,e.metadata
          FROM entities e
@@ -85,9 +72,8 @@ export const listAcervo = createServerFn({ method: "GET" }).handler(async () => 
           AND ${canonicalClause}
         ORDER BY e.id ASC
         LIMIT 240`,
-    );
-    return rows.map(withPublicImage);
-  });
+    ),
+  );
 });
 
 export const getAcervoStats = createServerFn({ method: "GET" }).handler(async () => {
@@ -156,7 +142,7 @@ export const searchAcervo = createServerFn({ method: "POST" })
       cursor: data.cursor ?? null,
     };
 
-    return cachedPublic(cacheKey("acervo:search:public:v4", normalized), 30_000, async () => {
+    return cachedPublic(cacheKey("acervo:search:public:v5", normalized), 30_000, async () => {
       const where: string[] = [
         "e.status='published'",
         "e.image_url IS NOT NULL",
@@ -170,39 +156,37 @@ export const searchAcervo = createServerFn({ method: "POST" })
       let orderBy = "e.id ASC";
       if (q) {
         const terms = expandSearchTerms(q, 8);
-        const supplementalLike = `%${q}%`;
-        const supplementalSearch = `(
-          COALESCE(e.metadata,'') LIKE ? COLLATE NOCASE
-          OR COALESCE(e.source_url,'') LIKE ? COLLATE NOCASE
-          OR EXISTS (
-            SELECT 1
-              FROM submissions s
+        const needle = `%${q}%`;
+        const provenanceClause = `(
+          EXISTS (
+            SELECT 1 FROM submissions s
              WHERE s.published_entity_id=e.id
-               AND s.status='approved'
-               AND (
-                 s.submitter_name LIKE ? COLLATE NOCASE
-                 OR COALESCE(s.submitter_relation,'') LIKE ? COLLATE NOCASE
-               )
+               AND (lower(COALESCE(s.submitter_name,'')) LIKE lower(?)
+                    OR lower(COALESCE(s.submitter_relation,'')) LIKE lower(?)
+                    OR lower(COALESCE(s.image_source_url,'')) LIKE lower(?)
+                    OR lower(COALESCE(s.source_urls,'')) LIKE lower(?))
           )
+          OR EXISTS (
+            SELECT 1 FROM profiles p
+             WHERE p.id=e.created_by
+               AND (lower(COALESCE(p.display_name,'')) LIKE lower(?)
+                    OR lower(COALESCE(p.institution,'')) LIKE lower(?))
+          )
+          OR lower(COALESCE(e.source_url,'')) LIKE lower(?)
+          OR lower(COALESCE(e.metadata,'')) LIKE lower(?)
         )`;
+        const provenanceArgs = [needle, needle, needle, needle, needle, needle, needle, needle];
 
         if (await hasNativeFts(queryOne)) {
-          // O FTS cobre os campos curatoriais principais. A cláusula suplementar
-          // torna pesquisáveis instituições/fontes e o nome de quem contribuiu.
           const ftsQuery = terms
             .map((term) => term.replace(/["'():^*]/g, " ").trim())
             .filter(Boolean)
             .join(" ");
-          where.push(`(
-            fts_match(
-              e.title,e.subtitle,e.description,e.culture,e.country,e.tags,e.themes,e.materials,e.techniques,?
-            )
-            OR ${supplementalSearch}
-          )`);
-          args.push(ftsQuery || q, supplementalLike, supplementalLike, supplementalLike, supplementalLike);
+          where.push(`(fts_match(
+            e.title,e.subtitle,e.description,e.culture,e.country,e.tags,e.themes,e.materials,e.techniques,?
+          ) OR ${provenanceClause})`);
+          args.push(ftsQuery || q, ...provenanceArgs);
         } else {
-          // Sem FTS, mantém o prefixo rápido em título/subtítulo e acrescenta a
-          // busca explícita pedida para procedência institucional e contribuidores.
           const fallbackTerms = terms.slice(0, 4);
           const groups: string[] = [];
           for (const term of fallbackTerms) {
@@ -210,9 +194,8 @@ export const searchAcervo = createServerFn({ method: "POST" })
             groups.push(`(e.title LIKE ? COLLATE NOCASE OR e.subtitle LIKE ? COLLATE NOCASE)`);
             args.push(prefix, prefix);
           }
-          groups.push(supplementalSearch);
-          args.push(supplementalLike, supplementalLike, supplementalLike, supplementalLike);
-          where.push(`(${groups.join(" OR ")})`);
+          where.push(`(${groups.length ? groups.join(" OR ") + " OR " : ""}${provenanceClause})`);
+          args.push(...provenanceArgs);
         }
         if (!data.cursor) {
           orderBy = `CASE
@@ -256,7 +239,9 @@ export const searchAcervo = createServerFn({ method: "POST" })
       // LEFT JOIN mantém no acervo as obras recém-editadas pela curadoria, mesmo
       // antes de uma reconstrução completa dos índices auxiliares.
       const rows = await query<AcervoCardRow>(
-        `SELECT e.id,e.title,e.subtitle,e.entity_type,e.image_url,e.date_display,e.continent
+        `SELECT e.id,e.title,e.subtitle,e.entity_type,
+                CASE WHEN e.image_url LIKE 'data:image/%' THEN '__inline_image__' ELSE e.image_url END AS image_url,
+                e.date_display,e.continent
            FROM entities e
            LEFT JOIN entity_dedupe_index di ON di.entity_id=e.id
           WHERE ${where.join(" AND ")}
@@ -266,7 +251,7 @@ export const searchAcervo = createServerFn({ method: "POST" })
       );
 
       const hasNext = rows.length > data.pageSize;
-      const items = rows.slice(0, data.pageSize).map(withPublicImage);
+      const items = rows.slice(0, data.pageSize);
       const nextCursor = hasNext && items.length ? items[items.length - 1].id : null;
 
       const typeRows = await cachedPublic<{ entity_type: string }[]>(
@@ -430,7 +415,7 @@ export const listFeatured = createServerFn({ method: "GET" }).handler(async () =
     }
   }
 
-  return selected.map(withPublicImage);
+  return selected;
 });
 
 export const getEntityDetail = createServerFn({ method: "GET" })
@@ -445,7 +430,7 @@ export const getEntityDetail = createServerFn({ method: "GET" })
     );
     if (!row) return null;
     const entity = mapEntity(row);
-    entity.image_url = publicEntityImageUrl(entity.id, entity.image_url);
+    if (entity.image_url?.startsWith("data:image/")) entity.image_url = "__inline_image__";
 
     const rels = await query<{
       id: string;
@@ -506,8 +491,9 @@ export const getEntityDetail = createServerFn({ method: "GET" })
       source_url: string | null;
     }>(
       entityType === "artista"
-        ? `SELECT e.id,e.title,e.subtitle,e.entity_type,e.image_url,e.date_display,
-                  e.country,e.culture,e.source_url
+        ? `SELECT e.id,e.title,e.subtitle,e.entity_type,
+                  CASE WHEN e.image_url LIKE 'data:image/%' THEN '__inline_image__' ELSE e.image_url END AS image_url,
+                  e.date_display,e.country,e.culture,e.source_url
              FROM entities e
              LEFT JOIN entity_dedupe_index di ON di.entity_id=e.id
             WHERE e.status='published'
@@ -538,8 +524,9 @@ export const getEntityDetail = createServerFn({ method: "GET" })
                FROM creators c
                JOIN relations rr ON rr.status='published' AND (rr.source_id=c.id OR rr.target_id=c.id)
            )
-           SELECT e.id,e.title,e.subtitle,e.entity_type,e.image_url,e.date_display,
-                  e.country,e.culture,e.source_url
+           SELECT e.id,e.title,e.subtitle,e.entity_type,
+                  CASE WHEN e.image_url LIKE 'data:image/%' THEN '__inline_image__' ELSE e.image_url END AS image_url,
+                  e.date_display,e.country,e.culture,e.source_url
              FROM entities e
              LEFT JOIN entity_dedupe_index di ON di.entity_id=e.id
             WHERE e.status='published'
@@ -565,12 +552,7 @@ export const getEntityDetail = createServerFn({ method: "GET" })
       [data.id, entity.subtitle ?? entity.title],
     );
 
-    return {
-      entity,
-      related,
-      bibliography,
-      sameArtistWorks: sameArtistWorks.map(withPublicImage),
-    };
+    return { entity, related, bibliography, sameArtistWorks };
   });
 
 
@@ -595,7 +577,7 @@ export const listEntitiesByTag = createServerFn({ method: "GET" })
       args.push(like, like, like, like);
     }
 
-    const rows = await query<{
+    return query<{
       id: string;
       title: string;
       subtitle: string | null;
@@ -623,7 +605,6 @@ export const listEntitiesByTag = createServerFn({ method: "GET" })
         LIMIT 240`,
       args,
     );
-    return rows.map(withPublicImage);
   });
 
 const NetworkInput = z.object({
@@ -1467,4 +1448,3 @@ export const getNetwork = createServerFn({ method: "GET" })
       },
     };
   });
-
