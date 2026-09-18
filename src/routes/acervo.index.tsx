@@ -128,7 +128,7 @@ function AcervoPage() {
                 <Input
                   value={term}
                   onChange={(event) => setTerm(event.target.value)}
-                  placeholder="Busque artistas, obras, movimentos ou conceitos…"
+                  placeholder="Busque obras, artistas, alunos/contribuidores ou instituições…"
                   className="pl-9"
                 />
               </div>
