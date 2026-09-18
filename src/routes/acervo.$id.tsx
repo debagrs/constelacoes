@@ -169,9 +169,15 @@ function buildImageCandidates(options: {
   const derivedCommons = sourceLikeUrls.flatMap((url) => commonsDirectCandidates(url));
   const aicUrl = aicMetadataImageUrl(options.metadata);
 
+  // Fotos enviadas pelo formulário ficam armazenadas como data URL no Turso.
+  // Servi-las por uma rota HTTP evita payloads base64 frágeis no SSR/hidratação.
+  const primaryImage = options.imageUrl?.startsWith("data:image/") && options.entityId
+    ? `/api/media?entityId=${encodeURIComponent(options.entityId)}`
+    : options.imageUrl;
+
   // A imagem escolhida pela curadoria sempre prevalece sobre imagens automáticas
   // antigas ainda presentes nos metadados institucionais.
-  return uniqueStrings([options.imageUrl, aicUrl, ...metadataUrls, ...derivedCommons]);
+  return uniqueStrings([primaryImage, aicUrl, ...metadataUrls, ...derivedCommons]);
 }
 
 async function resolveCommonsOriginal(rawUrl: string): Promise<string | null> {
@@ -777,6 +783,7 @@ function EntityDetail() {
                 <Link to="/acervo/$id" params={{ id: work.id }} className="block">
                   <div className="aspect-[4/3] overflow-hidden bg-secondary">
                     <RelatedWorkImage
+                      entityId={work.id}
                       title={work.title}
                       imageUrl={work.image_url}
                       sourceUrl={work.source_url ?? null}
@@ -1078,15 +1085,17 @@ function ArtworkImage({
 }
 
 function RelatedWorkImage({
+  entityId,
   title,
   imageUrl,
   sourceUrl,
 }: {
+  entityId: string;
   title: string;
   imageUrl: string | null;
   sourceUrl: string | null;
 }) {
-  const candidates = useResolvedImageCandidates({ imageUrl, sourceUrl });
+  const candidates = useResolvedImageCandidates({ entityId, imageUrl, sourceUrl });
   const [currentIndex, setCurrentIndex] = useState(0);
 
   useEffect(() => {
