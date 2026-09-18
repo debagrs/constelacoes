@@ -1,8 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
-import { Check, ExternalLink, MessageSquareWarning, Pencil, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Check, ExternalLink, MessageSquareWarning, Pencil, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   listPendingSubmissions,
@@ -47,6 +47,28 @@ const cleanTextMetadata = (record: Record<string, unknown>) => {
   return output;
 };
 
+const normalizeSearch = (value: unknown) =>
+  String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+function submissionSearchText(row: Record<string, unknown>) {
+  return normalizeSearch([
+    row.submitter_name,
+    row.submitter_email,
+    row.submitter_relation,
+    row.title,
+    row.artist_name,
+    row.description,
+    row.location,
+    row.country,
+    row.culture,
+    row.image_source_url,
+    row.source_urls,
+  ].join(" "));
+}
+
 function Page() {
   const { isReviewer, loading } = useAuth();
   const fetcher = useServerFn(listPendingSubmissions);
@@ -57,6 +79,13 @@ function Page() {
     queryFn: () => fetcher() as Promise<Record<string, unknown>[]>,
     enabled: isReviewer,
   });
+  const [filter, setFilter] = useState("");
+  const filteredSubmissions = useMemo(() => {
+    const needle = normalizeSearch(filter.trim());
+    const rows = q.data ?? [];
+    if (!needle) return rows;
+    return rows.filter((row) => submissionSearchText(row).includes(needle));
+  }, [filter, q.data]);
   const mutation = useMutation({
     mutationFn: ({ id, decision, notes }: { id: string; decision: "approve" | "reject" | "needs_changes"; notes: string }) =>
       review({ data: { id, decision, notes } }),
@@ -80,16 +109,27 @@ function Page() {
                 Nada é publicado automaticamente. Agora você pode editar todos os campos textuais antes de aprovar, pedir ajustes ou recusar.
               </p>
             </div>
-            <Badge variant="secondary">{q.data?.length ?? 0} pendentes</Badge>
+            <Badge variant="secondary">
+              {filter.trim() ? `${filteredSubmissions.length} de ${q.data?.length ?? 0}` : q.data?.length ?? 0} pendentes
+            </Badge>
           </div>
-          {q.isLoading ? <Skeleton className="h-72" /> : q.data?.length ? q.data.map((r) => (
+          <div className="relative mb-6 max-w-2xl">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              placeholder="Buscar por aluno/contribuidor, obra, instituição ou fonte…"
+              className="pl-9"
+            />
+          </div>
+          {q.isLoading ? <Skeleton className="h-72" /> : filteredSubmissions.length ? filteredSubmissions.map((r) => (
             <Card
               key={String(r.id)}
               r={r}
               busy={mutation.isPending}
               decide={(decision, notes) => mutation.mutate({ id: String(r.id), decision, notes })}
             />
-          )) : <div className="rounded-xl border bg-card p-10 text-center text-muted-foreground">Nenhuma contribuição aguardando análise.</div>}
+          )) : <div className="rounded-xl border bg-card p-10 text-center text-muted-foreground">{filter.trim() ? "Nenhuma contribuição corresponde a esta busca." : "Nenhuma contribuição aguardando análise."}</div>}
         </>
       )}
     </Shell>
