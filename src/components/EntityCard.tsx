@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { ImageOff } from "lucide-react";
 import { labelForEntityType } from "@/lib/constants";
 import { Badge } from "@/components/ui/badge";
+import { entityImageSrc } from "@/lib/image-url";
 
 export interface AcervoEntity {
   id: string;
@@ -14,17 +15,8 @@ export interface AcervoEntity {
   continent: string | null;
 }
 
-function normalizeImageUrl(entityId: string, url: string | null): string | null {
-  if (!url) return null;
-  const value = url.trim();
-  if (!value) return null;
-  if (value.startsWith("data:image/")) return `/api/media?entityId=${encodeURIComponent(entityId)}`;
-  if (value.startsWith("http://")) return `https://${value.slice(7)}`;
-  return value;
-}
-
 export function EntityCard({ entity }: { entity: AcervoEntity }) {
-  const imageUrl = useMemo(() => normalizeImageUrl(entity.id, entity.image_url), [entity.id, entity.image_url]);
+  const imageUrl = useMemo(() => entityImageSrc(entity.id, entity.image_url), [entity.id, entity.image_url]);
   const [imageFailed, setImageFailed] = useState(false);
 
   useEffect(() => {
