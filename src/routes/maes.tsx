@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { entityImageSrc } from "@/lib/image-url";
 
 export const Route = createFileRoute("/maes")({
   head: () => ({
@@ -50,7 +51,7 @@ function MaeCard({ a }: { a: ArtistaMae }) {
       <div className="h-24 w-20 shrink-0 overflow-hidden rounded bg-muted sm:h-28 sm:w-24">
         {a.image_url ? (
           <img
-            src={a.image_url}
+            src={entityImageSrc(a.id, a.image_url) ?? undefined}
             alt={`Retrato de ${a.title}`}
             loading="lazy"
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
