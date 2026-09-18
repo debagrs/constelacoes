@@ -1,8 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useMemo, useState } from "react";
-import { Check, ExternalLink, MessageSquareWarning, Pencil, Search, X } from "lucide-react";
+import { useState } from "react";
+import { Check, ExternalLink, MessageSquareWarning, Pencil, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   listPendingSubmissions,
@@ -19,6 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { submissionImageSrc } from "@/lib/image-url";
 import {
   Dialog,
   DialogContent,
@@ -47,45 +48,17 @@ const cleanTextMetadata = (record: Record<string, unknown>) => {
   return output;
 };
 
-const normalizeSearch = (value: unknown) =>
-  String(value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-
-function submissionSearchText(row: Record<string, unknown>) {
-  return normalizeSearch([
-    row.submitter_name,
-    row.submitter_email,
-    row.submitter_relation,
-    row.title,
-    row.artist_name,
-    row.description,
-    row.location,
-    row.country,
-    row.culture,
-    row.image_source_url,
-    row.source_urls,
-  ].join(" "));
-}
-
 function Page() {
   const { isReviewer, loading } = useAuth();
   const fetcher = useServerFn(listPendingSubmissions);
   const review = useServerFn(reviewSubmission);
   const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
   const q = useQuery({
     queryKey: ["submissions"],
     queryFn: () => fetcher() as Promise<Record<string, unknown>[]>,
     enabled: isReviewer,
   });
-  const [filter, setFilter] = useState("");
-  const filteredSubmissions = useMemo(() => {
-    const needle = normalizeSearch(filter.trim());
-    const rows = q.data ?? [];
-    if (!needle) return rows;
-    return rows.filter((row) => submissionSearchText(row).includes(needle));
-  }, [filter, q.data]);
   const mutation = useMutation({
     mutationFn: ({ id, decision, notes }: { id: string; decision: "approve" | "reject" | "needs_changes"; notes: string }) =>
       review({ data: { id, decision, notes } }),
@@ -95,6 +68,18 @@ function Page() {
       queryClient.invalidateQueries({ queryKey: ["acervo"] });
     },
     onError: (e: Error) => toast.error(e.message),
+  });
+
+  const normalizedSearch = search.trim().toLocaleLowerCase("pt-BR");
+  const filtered = (q.data ?? []).filter((row) => {
+    if (!normalizedSearch) return true;
+    const sensitive = toRecord(row.sensitive_metadata);
+    const haystack = [
+      row.title, row.artist_name, row.subtitle, row.description, row.location, row.country, row.continent, row.culture,
+      row.submitter_name, row.submitter_email, row.submitter_relation, row.image_source_url, row.source_urls,
+      row.tags, row.materials, row.techniques, JSON.stringify(sensitive),
+    ].filter(Boolean).join(" ").toLocaleLowerCase("pt-BR");
+    return haystack.includes(normalizedSearch);
   });
 
   return (
@@ -109,27 +94,26 @@ function Page() {
                 Nada é publicado automaticamente. Agora você pode editar todos os campos textuais antes de aprovar, pedir ajustes ou recusar.
               </p>
             </div>
-            <Badge variant="secondary">
-              {filter.trim() ? `${filteredSubmissions.length} de ${q.data?.length ?? 0}` : q.data?.length ?? 0} pendentes
-            </Badge>
+            <Badge variant="secondary">{filtered.length}{normalizedSearch ? ` de ${q.data?.length ?? 0}` : ""} pendentes</Badge>
           </div>
-          <div className="relative mb-6 max-w-2xl">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <div className="mb-6 max-w-2xl">
+            <Label htmlFor="submission-search">Pesquisar contribuições</Label>
             <Input
-              value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-              placeholder="Buscar por aluno/contribuidor, obra, instituição ou fonte…"
-              className="pl-9"
+              id="submission-search"
+              className="mt-2"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Nome do aluno, instituição, obra, autoria, e-mail ou fonte…"
             />
           </div>
-          {q.isLoading ? <Skeleton className="h-72" /> : filteredSubmissions.length ? filteredSubmissions.map((r) => (
+          {q.isLoading ? <Skeleton className="h-72" /> : filtered.length ? filtered.map((r) => (
             <Card
               key={String(r.id)}
               r={r}
               busy={mutation.isPending}
               decide={(decision, notes) => mutation.mutate({ id: String(r.id), decision, notes })}
             />
-          )) : <div className="rounded-xl border bg-card p-10 text-center text-muted-foreground">{filter.trim() ? "Nenhuma contribuição corresponde a esta busca." : "Nenhuma contribuição aguardando análise."}</div>}
+          )) : <div className="rounded-xl border bg-card p-10 text-center text-muted-foreground">{normalizedSearch ? "Nenhuma contribuição corresponde à pesquisa." : "Nenhuma contribuição aguardando análise."}</div>}
         </>
       )}
     </Shell>
@@ -143,7 +127,7 @@ function Card({ r, busy, decide }: { r: Record<string, unknown>; busy: boolean; 
   return (
     <article className="mb-6 overflow-hidden rounded-2xl border bg-card">
       <div className="grid md:grid-cols-[240px_1fr]">
-        {r.image_url ? <img src={String(r.image_url)} alt="" className="h-full min-h-56 w-full object-cover" /> : <div className="min-h-48 bg-muted" />}
+        {r.image_url ? <img src={submissionImageSrc(String(r.id), String(r.image_url)) ?? undefined} alt="" className="h-full min-h-56 w-full object-cover" /> : <div className="min-h-48 bg-muted" />}
         <div className="p-6">
           <div className="flex flex-wrap gap-2"><Badge>{String(r.submission_type)}</Badge><Badge variant="outline">{String(r.status)}</Badge></div>
           <h2 className="mt-3 font-display text-2xl font-semibold">{String(r.title)}</h2>
@@ -211,6 +195,7 @@ function SubmissionEditor({ row }: { row: Record<string, unknown> }) {
     animalidades: metaText(sensitive, "animalidades_percepcao_animal"),
     bioetica: metaText(sensitive, "bioetica"),
     alemAntropoceno: metaText(sensitive, "alem_do_antropoceno"),
+    sourceInstitution: metaText(sensitive, "instituicao_origem"),
     sensorialidades: metaText(poetic, "sensorialidades"),
     afetos: metaText(poetic, "afetos"),
     temporalidades: metaText(poetic, "temporalidades"),
@@ -252,6 +237,7 @@ function SubmissionEditor({ row }: { row: Record<string, unknown> }) {
           animalidades_percepcao_animal: split(form.animalidades),
           bioetica: split(form.bioetica),
           alem_do_antropoceno: split(form.alemAntropoceno),
+          instituicao_origem: form.sourceInstitution.trim(),
         },
         poeticMetadata: {
           ...cleanTextMetadata(poetic),
@@ -302,6 +288,7 @@ function SubmissionEditor({ row }: { row: Record<string, unknown> }) {
             ) : <EditField label="URL direta da imagem" value={form.imageUrl} onChange={(v) => set("imageUrl", v)} type="url" />}
             <EditField label="Página de origem da imagem" value={form.imageSourceUrl} onChange={(v) => set("imageSourceUrl", v)} type="url" />
             <EditField label="Licença da imagem" value={form.imageLicense} onChange={(v) => set("imageLicense", v)} />
+            <EditField label="Instituição / acervo de origem" value={form.sourceInstitution} onChange={(v) => set("sourceInstitution", v)} />
             <EditArea label="Outras fontes" hint="uma por linha, vírgula ou ponto e vírgula" value={form.sourceUrls} onChange={(v) => set("sourceUrls", v)} rows={3} />
           </div>
           <div className="grid gap-4 md:grid-cols-3">
