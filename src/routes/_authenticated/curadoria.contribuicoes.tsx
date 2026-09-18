@@ -344,7 +344,8 @@ function Meta({ title, values }: { title: string; values: string[] }) {
 }
 
 function Restricted() {
-  return <div className="rounded-xl border bg-card p-10 text-center"><h1 className="font-display text-2xl font-semibold">Acesso restrito</h1><p className="mt-2 text-muted-foreground">Somente administradores e curadores podem revisar contribuições.</p><Button asChild className="mt-5"><Link to="/">Voltar</Link></Button></div>;
+  return <div className="rounded-xl border bg-card p-10 text-center"><h1 className="font-display text-2xl
+ font-semibold">Acesso restrito</h1><p className="mt-2 text-muted-foreground">Somente administradores e curadores podem revisar contribuições.</p><Button asChild className="mt-5"><Link to="/">Voltar</Link></Button></div>;
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
