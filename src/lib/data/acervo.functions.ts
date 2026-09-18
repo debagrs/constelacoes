@@ -46,6 +46,19 @@ const PRIMARY_LENS_FACET = {
 const PRIMARY_SPECIAL_FACETS = Object.values(PRIMARY_LENS_FACET);
 const canonicalClause = "(di.entity_id IS NULL OR di.is_canonical=1)";
 
+function publicEntityImageUrl(entityId: string, imageUrl: string | null | undefined) {
+  if (!imageUrl) return null;
+  const value = imageUrl.trim();
+  if (!value) return null;
+  return value.startsWith("data:image/")
+    ? `/api/media?entityId=${encodeURIComponent(entityId)}`
+    : value;
+}
+
+function withPublicImage<T extends { id: string; image_url: string | null }>(row: T): T {
+  return { ...row, image_url: publicEntityImageUrl(row.id, row.image_url) };
+}
+
 async function hasNativeFts(queryOne: any) {
   try {
     const row = await queryOne<{ enabled: number }>(
@@ -61,8 +74,8 @@ export const listAcervo = createServerFn({ method: "GET" }).handler(async () => 
   const { query } = await import("@/lib/turso/client.server");
   const { cachedPublic } = await import("@/lib/server-cache.server");
 
-  return cachedPublic<AcervoListRow[]>("acervo:list:low-read:v1", 10 * 60_000, async () =>
-    query<AcervoListRow>(
+  return cachedPublic<AcervoListRow[]>("acervo:list:low-read:v1", 10 * 60_000, async () => {
+    const rows = await query<AcervoListRow>(
       `SELECT e.id,e.title,e.subtitle,e.entity_type,e.image_url,e.date_display,
               e.continent,e.country,e.culture,e.tags,e.themes,e.metadata
          FROM entities e
@@ -72,8 +85,9 @@ export const listAcervo = createServerFn({ method: "GET" }).handler(async () => 
           AND ${canonicalClause}
         ORDER BY e.id ASC
         LIMIT 240`,
-    ),
-  );
+    );
+    return rows.map(withPublicImage);
+  });
 });
 
 export const getAcervoStats = createServerFn({ method: "GET" }).handler(async () => {
@@ -156,20 +170,39 @@ export const searchAcervo = createServerFn({ method: "POST" })
       let orderBy = "e.id ASC";
       if (q) {
         const terms = expandSearchTerms(q, 8);
+        const supplementalLike = `%${q}%`;
+        const supplementalSearch = `(
+          COALESCE(e.metadata,'') LIKE ? COLLATE NOCASE
+          OR COALESCE(e.source_url,'') LIKE ? COLLATE NOCASE
+          OR EXISTS (
+            SELECT 1
+              FROM submissions s
+             WHERE s.published_entity_id=e.id
+               AND s.status='approved'
+               AND (
+                 s.submitter_name LIKE ? COLLATE NOCASE
+                 OR COALESCE(s.submitter_relation,'') LIKE ? COLLATE NOCASE
+               )
+          )
+        )`;
+
         if (await hasNativeFts(queryOne)) {
-          // No parser Tantivy, termos separados funcionam como OR; preserva a busca ampliada sem varrer entities.
+          // O FTS cobre os campos curatoriais principais. A cláusula suplementar
+          // torna pesquisáveis instituições/fontes e o nome de quem contribuiu.
           const ftsQuery = terms
             .map((term) => term.replace(/["'():^*]/g, " ").trim())
             .filter(Boolean)
             .join(" ");
-          where.push(`fts_match(
-            e.title,e.subtitle,e.description,e.culture,e.country,e.tags,e.themes,e.materials,e.techniques,?
+          where.push(`(
+            fts_match(
+              e.title,e.subtitle,e.description,e.culture,e.country,e.tags,e.themes,e.materials,e.techniques,?
+            )
+            OR ${supplementalSearch}
           )`);
-          args.push(ftsQuery || q);
+          args.push(ftsQuery || q, supplementalLike, supplementalLike, supplementalLike, supplementalLike);
         } else {
-          // Fallback de segurança: só prefixo em título/subtítulo (há índices NOCASE).
-          // É propositalmente menos amplo que o FTS para nunca transformar uma busca em varredura
-          // de 6–11 campos quando o acervo chegar a dezenas de milhares de registros.
+          // Sem FTS, mantém o prefixo rápido em título/subtítulo e acrescenta a
+          // busca explícita pedida para procedência institucional e contribuidores.
           const fallbackTerms = terms.slice(0, 4);
           const groups: string[] = [];
           for (const term of fallbackTerms) {
@@ -177,7 +210,9 @@ export const searchAcervo = createServerFn({ method: "POST" })
             groups.push(`(e.title LIKE ? COLLATE NOCASE OR e.subtitle LIKE ? COLLATE NOCASE)`);
             args.push(prefix, prefix);
           }
-          if (groups.length) where.push(`(${groups.join(" OR ")})`);
+          groups.push(supplementalSearch);
+          args.push(supplementalLike, supplementalLike, supplementalLike, supplementalLike);
+          where.push(`(${groups.join(" OR ")})`);
         }
         if (!data.cursor) {
           orderBy = `CASE
@@ -231,7 +266,7 @@ export const searchAcervo = createServerFn({ method: "POST" })
       );
 
       const hasNext = rows.length > data.pageSize;
-      const items = rows.slice(0, data.pageSize);
+      const items = rows.slice(0, data.pageSize).map(withPublicImage);
       const nextCursor = hasNext && items.length ? items[items.length - 1].id : null;
 
       const typeRows = await cachedPublic<{ entity_type: string }[]>(
@@ -395,7 +430,7 @@ export const listFeatured = createServerFn({ method: "GET" }).handler(async () =
     }
   }
 
-  return selected;
+  return selected.map(withPublicImage);
 });
 
 export const getEntityDetail = createServerFn({ method: "GET" })
@@ -410,6 +445,7 @@ export const getEntityDetail = createServerFn({ method: "GET" })
     );
     if (!row) return null;
     const entity = mapEntity(row);
+    entity.image_url = publicEntityImageUrl(entity.id, entity.image_url);
 
     const rels = await query<{
       id: string;
@@ -529,7 +565,12 @@ export const getEntityDetail = createServerFn({ method: "GET" })
       [data.id, entity.subtitle ?? entity.title],
     );
 
-    return { entity, related, bibliography, sameArtistWorks };
+    return {
+      entity,
+      related,
+      bibliography,
+      sameArtistWorks: sameArtistWorks.map(withPublicImage),
+    };
   });
 
 
@@ -554,7 +595,7 @@ export const listEntitiesByTag = createServerFn({ method: "GET" })
       args.push(like, like, like, like);
     }
 
-    return query<{
+    const rows = await query<{
       id: string;
       title: string;
       subtitle: string | null;
@@ -582,6 +623,7 @@ export const listEntitiesByTag = createServerFn({ method: "GET" })
         LIMIT 240`,
       args,
     );
+    return rows.map(withPublicImage);
   });
 
 const NetworkInput = z.object({
