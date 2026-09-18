@@ -39,6 +39,7 @@ import {
   aicMetadataImageUrl,
   fetchCurrentAicImageUrl,
 } from "@/lib/aic-images";
+import { entityImageSrc } from "@/lib/image-url";
 
 export const Route = createFileRoute("/_authenticated/curadoria/qualidade")({
   component: CuradoriaQualidade,
@@ -522,7 +523,7 @@ function ImageUrlEditor({
         <Input
           value={value}
           onChange={(event) => setValue(event.target.value)}
-          placeholder="https://…/imagem.jpg"
+          placeholder="URL direta ou link compartilhado do Google Photos"
           inputMode="url"
           autoComplete="off"
         />
@@ -549,7 +550,7 @@ function Thumb({
   large?: boolean;
 }) {
   const initialCandidates = useMemo(() => {
-    const values = [image, aicMetadataImageUrl(metadata)]
+    const values = [entityImageSrc(entityId, image), aicMetadataImageUrl(metadata)]
       .filter((value): value is string => Boolean(value?.trim()));
     return [...new Set(values)];
   }, [image, metadata]);
