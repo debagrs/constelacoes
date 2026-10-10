@@ -28,6 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { aicMetadataImageUrl, fetchCurrentAicImageUrl } from "@/lib/aic-images";
+import { searchTainacanBrazil, type TainacanArtwork } from "@/lib/data/tainacan.functions";
 
 export const Route = createFileRoute("/_authenticated/atlas/$atlasId")({
   component: AtlasEditor,
@@ -104,6 +105,14 @@ function AtlasEditor() {
     queryFn: () => searchAtlasEntities({ data: { query: searchTerm } }),
     enabled: showLibrary,
     staleTime: 30_000,
+  });
+
+  const { data: tainacanResults, isFetching: searchingTainacan } = useQuery({
+    queryKey: ["atlas-tainacan-search", searchTerm],
+    queryFn: () => searchTainacanBrazil({ data: { query: searchTerm.trim(), limit: 24 } }),
+    enabled: showLibrary && searchTerm.trim().length >= 2,
+    staleTime: 2 * 60_000,
+    retry: 0,
   });
 
   const deletedIdsRef = useRef<string[]>([]);
@@ -240,6 +249,47 @@ function AtlasEditor() {
     toast.success("Imagem adicionada ao Atlas.");
   };
 
+  const addTainacanCard = (artwork: TainacanArtwork) => {
+    const mediaUrl = artwork.imageUrl ?? artwork.thumbnailUrl;
+    if (!mediaUrl) {
+      toast.error("Este item Tainacan não disponibilizou uma imagem utilizável.");
+      return;
+    }
+    const alreadyAdded = cards.some(
+      (card) => card.link_url === artwork.sourceUrl || card.media_url === mediaUrl,
+    );
+    if (alreadyAdded) {
+      toast.info("Esta referência já está neste Atlas.");
+      return;
+    }
+    const position = nextPosition();
+    const card: CardRow = {
+      id: crypto.randomUUID(),
+      atlas_id: atlasId,
+      card_type: "external",
+      entity_id: null,
+      title: artwork.title,
+      body: [
+        artwork.artist,
+        artwork.date,
+        artwork.collectionName,
+        `Tainacan · ${artwork.repositoryName}`,
+      ].filter(Boolean).join(" · "),
+      media_url: mediaUrl,
+      link_url: artwork.sourceUrl,
+      x: position.x,
+      y: position.y,
+      width: 280,
+      height: 390,
+      rotation: 0,
+      z_index: position.z_index,
+    };
+    setCards((previous) => [...previous, card]);
+    setSelectedId(card.id);
+    setDirty(true);
+    toast.success("Referência Tainacan adicionada ao Atlas.");
+  };
+
   const removeCard = (id: string) => {
     deletedIdsRef.current = [...deletedIdsRef.current, id];
     setCards((previous) => previous.filter((card) => card.id !== id));
@@ -355,7 +405,9 @@ function AtlasEditor() {
                     />
                   </div>
                   <span className="text-xs text-muted-foreground">
-                    {searching ? "buscando…" : `${searchResults.length} imagens`}
+                    {searching || searchingTainacan
+                      ? "buscando…"
+                      : `${searchResults.length} do acervo${tainacanResults?.results?.length ? ` + ${tainacanResults.results.length} Tainacan` : ""}`}
                   </span>
                 </div>
 
@@ -386,6 +438,48 @@ function AtlasEditor() {
                       </button>
                     );
                   })}
+                </div>
+
+                <div className="mt-5 border-t border-border/60 pt-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-wider text-primary">API Tainacan · Brasil</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Referências de acervos brasileiros aparecem junto da biblioteca do Atlas, sem publicação automática no acervo.</p>
+                    </div>
+                    <span className="text-[0.65rem] text-muted-foreground">fonte externa identificada</span>
+                  </div>
+                  {searchTerm.trim().length < 2 ? (
+                    <p className="mt-3 rounded-lg border border-dashed p-3 text-xs text-muted-foreground">Digite ao menos 2 caracteres acima para consultar também a API Tainacan.</p>
+                  ) : searchingTainacan ? (
+                    <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">{Array.from({ length: 6 }).map((_, index) => <Skeleton key={index} className="aspect-[4/5] rounded-lg" />)}</div>
+                  ) : tainacanResults?.results?.length ? (
+                    <div className="mt-3 grid max-h-[420px] grid-cols-2 gap-3 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6">
+                      {tainacanResults.results.map((artwork) => {
+                        const mediaUrl = artwork.thumbnailUrl ?? artwork.imageUrl;
+                        const alreadyAdded = cards.some((card) => card.link_url === artwork.sourceUrl || (mediaUrl && card.media_url === mediaUrl));
+                        return (
+                          <button
+                            type="button"
+                            key={artwork.id}
+                            disabled={alreadyAdded || !mediaUrl}
+                            onClick={() => addTainacanCard(artwork)}
+                            className="group overflow-hidden rounded-lg border border-border/60 bg-background text-left transition hover:border-primary/60 disabled:cursor-not-allowed disabled:opacity-45"
+                          >
+                            <div className="aspect-[4/5] overflow-hidden bg-muted">
+                              {mediaUrl ? <img src={mediaUrl} alt={artwork.title} loading="lazy" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" /> : <div className="flex h-full items-center justify-center px-2 text-center text-[0.65rem] text-muted-foreground">sem imagem</div>}
+                            </div>
+                            <div className="p-2">
+                              <p className="line-clamp-2 text-xs font-medium">{artwork.title}</p>
+                              <p className="mt-1 line-clamp-2 text-[0.65rem] text-muted-foreground">{artwork.repositoryName}</p>
+                              <p className="mt-1 text-[0.65rem] text-muted-foreground">{alreadyAdded ? "Já está no Atlas" : "Adicionar referência"}</p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="mt-3 rounded-lg border border-dashed p-3 text-xs text-muted-foreground">Nenhum resultado Tainacan para esta busca; as imagens já curadas continuam acima.</p>
+                  )}
                 </div>
               </section>
             )}
@@ -586,7 +680,7 @@ function Mural({
 
         {cards.map((card) => {
           const selected = card.id === selectedId;
-          const isImage = card.card_type === "entity" && Boolean(card.media_url);
+          const isImage = (card.card_type === "entity" || card.card_type === "external") && Boolean(card.media_url);
 
           return (
             <article
