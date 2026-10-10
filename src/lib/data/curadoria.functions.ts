@@ -4,6 +4,24 @@ import { z } from "zod";
 const EntityIdInput = z.object({ entityId: z.string().min(1).max(200) });
 const SuggestionInput = z.object({ suggestionId: z.string().min(1).max(200) });
 
+const CURATORIAL_FACETS = [
+  "curadoria:mulheres-e-maes",
+  "curadoria:indigenas",
+  "curadoria:negros-e-diasporas",
+  "curadoria:lgbtqia",
+  "curadoria:bioetica-e-animalidades",
+  "curadoria:alem-do-antropoceno",
+] as const;
+
+const CURATORIAL_FACET_DEFINITIONS: Record<(typeof CURATORIAL_FACETS)[number], { name: string; summary: string }> = {
+  "curadoria:mulheres-e-maes": { name: "Mulheres e mães", summary: "Lente curatorial documentada e aprovada manualmente." },
+  "curadoria:indigenas": { name: "Indígenas", summary: "Lente curatorial documentada e aprovada manualmente." },
+  "curadoria:negros-e-diasporas": { name: "Negros e diásporas", summary: "Lente curatorial documentada e aprovada manualmente." },
+  "curadoria:lgbtqia": { name: "LGBTQIA+", summary: "Lente curatorial documentada e aprovada manualmente." },
+  "curadoria:bioetica-e-animalidades": { name: "Bioética e animalidades", summary: "Lente curatorial documentada e aprovada manualmente." },
+  "curadoria:alem-do-antropoceno": { name: "Além do Antropoceno", summary: "Lente curatorial documentada e aprovada manualmente." },
+};
+
 export const listImageQueue = createServerFn({ method: "GET" }).handler(async () => {
   const { requireReviewer } = await import("@/lib/auth/session.server");
   const { query } = await import("@/lib/turso/client.server");
@@ -108,16 +126,26 @@ export const getCuratorialEntity = createServerFn({ method: "GET" })
   .inputValidator((d: unknown) => EntityIdInput.parse(d))
   .handler(async ({ data }) => {
     const { requireReviewer } = await import("@/lib/auth/session.server");
-    const { queryOne } = await import("@/lib/turso/client.server");
+    const { queryOne, query } = await import("@/lib/turso/client.server");
     await requireReviewer();
     const row = await queryOne<Record<string, unknown>>(
-      `SELECT id,entity_type,title,slug,subtitle,description,date_display,location,country,continent,
-              culture,region_id,people,cosmology,image_license,source_url,tags,themes,colors,materials,techniques,metadata
+      `SELECT id,entity_type,title,slug,subtitle,description,date_start,date_end,date_display,location,country,continent,
+              culture,region_id,people,cosmology,latitude,longitude,image_url,image_license,open_image,source_url,
+              tags,themes,colors,materials,techniques,metadata,status
          FROM entities WHERE id=?`,
       [data.entityId],
     );
     if (!row) throw new Error("Registro não encontrado.");
-    return row;
+    let facets: Array<{ facet_id: string }> = [];
+    try {
+      facets = await query<{ facet_id: string }>(
+        `SELECT facet_id FROM entity_facets WHERE entity_id=? AND facet_id IN (${CURATORIAL_FACETS.map(() => "?").join(",")})`,
+        [data.entityId, ...CURATORIAL_FACETS],
+      );
+    } catch {
+      // Bancos antigos podem ainda não ter recebido a camada de facetas; o primeiro salvamento cria as tabelas.
+    }
+    return { ...row, curatorial_facets: facets.map((item) => item.facet_id) };
   });
 
 const UpdateCuratorialEntityInput = z.object({
@@ -127,6 +155,8 @@ const UpdateCuratorialEntityInput = z.object({
   slug: z.string().trim().max(300).optional().default(""),
   subtitle: z.string().trim().max(500).optional().default(""),
   description: z.string().max(15000).optional().default(""),
+  dateStart: z.number().int().min(-100000).max(3000).nullable().optional(),
+  dateEnd: z.number().int().min(-100000).max(3000).nullable().optional(),
   dateDisplay: z.string().trim().max(200).optional().default(""),
   location: z.string().trim().max(300).optional().default(""),
   country: z.string().trim().max(160).optional().default(""),
@@ -135,7 +165,11 @@ const UpdateCuratorialEntityInput = z.object({
   regionId: z.string().trim().max(200).optional().default(""),
   people: z.string().trim().max(300).optional().default(""),
   cosmology: z.string().trim().max(500).optional().default(""),
+  latitude: z.number().min(-90).max(90).nullable().optional(),
+  longitude: z.number().min(-180).max(180).nullable().optional(),
+  imageUrl: z.string().trim().max(3000).optional().default("").refine((v) => !v || /^https?:\/\//i.test(v), "A URL da imagem precisa começar com http:// ou https://."),
   imageLicense: z.string().trim().max(300).optional().default(""),
+  openImage: z.boolean().default(false),
   sourceUrl: z.string().trim().max(2000).optional().default("").refine((v) => !v || /^https?:\/\//i.test(v), "A URL da fonte precisa começar com http:// ou https://."),
   tags: z.array(z.string().trim().min(1).max(160)).max(80),
   themes: z.array(z.string().trim().min(1).max(160)).max(80),
@@ -143,26 +177,77 @@ const UpdateCuratorialEntityInput = z.object({
   materials: z.array(z.string().trim().min(1).max(160)).max(80),
   techniques: z.array(z.string().trim().min(1).max(160)).max(80),
   metadata: z.record(z.string(), z.unknown()),
+  curatorialFacets: z.array(z.enum(CURATORIAL_FACETS)).max(CURATORIAL_FACETS.length).default([]),
+  status: z.enum(["draft", "review", "published", "archived"]),
 });
 
 export const updateCuratorialEntity = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => UpdateCuratorialEntityInput.parse(d))
   .handler(async ({ data }) => {
     const { requireReviewer } = await import("@/lib/auth/session.server");
-    const { execute, nowIso } = await import("@/lib/turso/client.server");
+    const { batch, nowIso } = await import("@/lib/turso/client.server");
     await requireReviewer();
-    await execute(
-      `UPDATE entities SET
-         entity_type=?,title=?,slug=?,subtitle=?,description=?,date_display=?,location=?,country=?,continent=?,culture=?,
-         region_id=?,people=?,cosmology=?,image_license=?,source_url=?,tags=?,themes=?,colors=?,materials=?,techniques=?,metadata=?,updated_at=?
-       WHERE id=?`,
-      [
-        data.entityType, data.title, data.slug || null, data.subtitle || null, data.description || null,
-        data.dateDisplay || null, data.location || null, data.country || null, data.continent || null, data.culture || null,
-        data.regionId || null, data.people || null, data.cosmology || null, data.imageLicense || null, data.sourceUrl || null,
-        JSON.stringify(data.tags), JSON.stringify(data.themes), JSON.stringify(data.colors), JSON.stringify(data.materials),
-        JSON.stringify(data.techniques), JSON.stringify(data.metadata), nowIso(), data.entityId,
-      ],
-    );
+    const now = nowIso();
+    const statements: { sql: string; args: Array<string | number | null> }[] = [
+      {
+        sql: "CREATE TABLE IF NOT EXISTS facets (id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, summary TEXT)",
+        args: [],
+      },
+      {
+        sql: `CREATE TABLE IF NOT EXISTS entity_facets (
+          entity_id TEXT NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+          facet_id TEXT NOT NULL REFERENCES facets(id) ON DELETE CASCADE,
+          PRIMARY KEY (entity_id, facet_id)
+        )`,
+        args: [],
+      },
+      {
+        sql: `UPDATE entities SET
+          entity_type=?,title=?,slug=?,subtitle=?,description=?,date_start=?,date_end=?,date_display=?,location=?,country=?,continent=?,culture=?,
+          region_id=?,people=?,cosmology=?,latitude=?,longitude=?,image_url=?,image_license=?,open_image=?,source_url=?,
+          tags=?,themes=?,colors=?,materials=?,techniques=?,metadata=?,status=?,updated_at=?
+          WHERE id=?`,
+        args: [
+          data.entityType, data.title, data.slug || null, data.subtitle || null, data.description || null,
+          data.dateStart ?? null, data.dateEnd ?? null, data.dateDisplay || null, data.location || null, data.country || null, data.continent || null, data.culture || null,
+          data.regionId || null, data.people || null, data.cosmology || null, data.latitude ?? null, data.longitude ?? null,
+          data.imageUrl || null, data.imageLicense || null, data.openImage ? 1 : 0, data.sourceUrl || null,
+          JSON.stringify(data.tags), JSON.stringify(data.themes), JSON.stringify(data.colors), JSON.stringify(data.materials),
+          JSON.stringify(data.techniques), JSON.stringify(data.metadata), data.status, now, data.entityId,
+        ],
+      },
+      {
+        sql: `DELETE FROM entity_facets WHERE entity_id=? AND facet_id IN (${CURATORIAL_FACETS.map(() => "?").join(",")})`,
+        args: [data.entityId, ...CURATORIAL_FACETS],
+      },
+    ];
+    for (const facetId of data.curatorialFacets) {
+      const definition = CURATORIAL_FACET_DEFINITIONS[facetId];
+      statements.push({
+        sql: "INSERT OR IGNORE INTO facets(id,kind,name,summary) VALUES (?,?,?,?)",
+        args: [facetId, "curadoria", definition.name, definition.summary],
+      });
+      statements.push({
+        sql: "INSERT OR IGNORE INTO entity_facets(entity_id,facet_id) VALUES (?,?)",
+        args: [data.entityId, facetId],
+      });
+    }
+    await batch(statements);
+    return { ok: true };
+  });
+
+
+export const deleteCuratorialEntity = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => EntityIdInput.parse(d))
+  .handler(async ({ data }) => {
+    const { requireReviewer } = await import("@/lib/auth/session.server");
+    const { batch } = await import("@/lib/turso/client.server");
+    await requireReviewer();
+    await batch([
+      { sql: "DELETE FROM relations WHERE source_id=? OR target_id=?", args: [data.entityId, data.entityId] },
+      { sql: "DELETE FROM atlas_cards WHERE entity_id=?", args: [data.entityId] },
+      { sql: "DELETE FROM image_suggestions WHERE entity_id=?", args: [data.entityId] },
+      { sql: "DELETE FROM entities WHERE id=?", args: [data.entityId] },
+    ]);
     return { ok: true };
   });
