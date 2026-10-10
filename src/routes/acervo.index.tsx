@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Database, Search } from "lucide-react";
 import { getAcervoStats, searchAcervo } from "@/lib/data/acervo.functions";
 import { useI18n } from "@/lib/i18n";
 import { SiteHeader } from "@/components/SiteHeader";
@@ -9,6 +9,7 @@ import { SiteFooter } from "@/components/SiteFooter";
 import { EntityCard } from "@/components/EntityCard";
 import { ExternalArtworkCard } from "@/components/ExternalArtworkCard";
 import { searchOpenCollections } from "@/lib/data/federated.functions";
+import { searchTainacanBrazil } from "@/lib/data/tainacan.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -81,6 +82,11 @@ function AcervoPage() {
       await searchOpenCollections({ data: { query: searchTerm, limit: 36 } }),
   });
 
+  const tainacanSearch = useMutation({
+    mutationFn: async (searchTerm: string) =>
+      await searchTainacanBrazil({ data: { query: searchTerm, limit: 36 } }),
+  });
+
   function searchAll() {
     const searchTerm = term.trim();
     if (searchTerm.length < 2) return;
@@ -88,6 +94,7 @@ function AcervoPage() {
     setPage(1);
     setCursors({ 1: null });
     externalSearch.mutate(searchTerm);
+    tainacanSearch.mutate(searchTerm);
   }
 
   const databaseEmpty =
@@ -134,10 +141,10 @@ function AcervoPage() {
               </div>
               <Button
                 type="submit"
-                disabled={externalSearch.isPending || term.trim().length < 2}
+                disabled={(externalSearch.isPending || tainacanSearch.isPending) || term.trim().length < 2}
               >
                 <Search className="mr-2 h-4 w-4" />
-                {externalSearch.isPending ? "Buscando…" : "Buscar"}
+                {externalSearch.isPending || tainacanSearch.isPending ? "Buscando…" : "Buscar"}
               </Button>
             </form>
 
@@ -250,11 +257,75 @@ function AcervoPage() {
             </>
           )}
 
+          {q && (tainacanSearch.data || tainacanSearch.isPending) ? (
+            <section className="mt-14 border-t border-border pt-10">
+              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+                <div>
+                  <div className="flex items-center gap-2 text-primary">
+                    <Database className="h-4 w-4" />
+                    <span className="text-xs font-semibold uppercase tracking-wider">API Tainacan · Brasil</span>
+                  </div>
+                  <h2 className="mt-2 font-display text-2xl font-semibold">Acervos brasileiros conectados</h2>
+                  <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+                    Busca direta na API REST do Tainacan em museus e instituições brasileiras. A origem, a coleção e os metadados são preservados para revisão curatorial.
+                  </p>
+                </div>
+                {tainacanSearch.data?.documentationUrl && (
+                  <a href={tainacanSearch.data.documentationUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-primary hover:underline">
+                    Sobre a API Tainacan ↗
+                  </a>
+                )}
+              </div>
+
+              {tainacanSearch.data?.sources?.length ? (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {tainacanSearch.data.sources.map((source) => (
+                    <a
+                      key={source.key}
+                      href={source.apiUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={`${source.focus} · ${source.region}`}
+                      className="rounded-full border border-border bg-background px-3 py-1 text-xs text-muted-foreground transition hover:border-primary/50 hover:text-foreground"
+                    >
+                      {source.name} · API
+                    </a>
+                  ))}
+                </div>
+              ) : null}
+
+              {tainacanSearch.isPending ? (
+                <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+                  {Array.from({ length: 8 }).map((_, index) => <Skeleton key={index} className="aspect-[4/5] rounded-lg" />)}
+                </div>
+              ) : tainacanSearch.data?.results?.length ? (
+                <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+                  {tainacanSearch.data.results.map((artwork) => (
+                    <ExternalArtworkCard key={artwork.id} artwork={artwork} />
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-6 rounded-xl border border-dashed p-5 text-sm text-muted-foreground">
+                  Nenhum item foi retornado pelas fontes Tainacan disponíveis para “{q}”. Os endpoints consultados continuam visíveis acima.
+                </p>
+              )}
+
+              {tainacanSearch.data?.errors?.length ? (
+                <details className="mt-5 rounded-lg border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
+                  <summary className="cursor-pointer font-medium">Fontes Tainacan temporariamente indisponíveis ({tainacanSearch.data.errors.length})</summary>
+                  <ul className="mt-2 space-y-1">
+                    {tainacanSearch.data.errors.map((error) => <li key={error}>{error}</li>)}
+                  </ul>
+                </details>
+              ) : null}
+            </section>
+          ) : null}
+
           {q && externalSearch.data?.results?.length ? (
             <section className="mt-14 border-t border-border pt-10">
               <h2 className="font-display text-2xl font-semibold">Outras descobertas</h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Amplie a pesquisa em coleções internacionais relacionadas a “{q}”.
+                Amplie a pesquisa em coleções internacionais relacionadas a “{q}”. O bloco Tainacan acima prioriza acervos brasileiros.
               </p>
               <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
                 {externalSearch.data.results.map((artwork) => (
