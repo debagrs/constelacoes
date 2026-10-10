@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { FileCheck2, Images, ShieldCheck, SearchCheck } from "lucide-react";
+import { Database, FileCheck2, Images, ShieldCheck, SearchCheck } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -33,7 +33,7 @@ function CuradoriaHome() {
               Sessão autorizada para {user?.email}. Revise contribuições antes da publicação e acompanhe sugestões de imagens do acervo.
             </p>
 
-            <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
               <Link
                 to="/curadoria/contribuicoes"
                 className="rounded-2xl border bg-card p-6 transition hover:border-primary/50 hover:shadow-md"
@@ -53,6 +53,17 @@ function CuradoriaHome() {
                 <h2 className="mt-5 font-display text-2xl font-semibold">Imagens</h2>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
                   Revisar sugestões de imagem, fonte e adequação de licença antes de associá-las ao acervo.
+                </p>
+              </Link>
+
+              <Link
+                to="/curadoria/tainacan"
+                className="rounded-2xl border bg-card p-6 transition hover:border-primary/50 hover:shadow-md"
+              >
+                <Database className="h-7 w-7 text-primary" />
+                <h2 className="mt-5 font-display text-2xl font-semibold">Tainacan Brasil</h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Buscar acervos brasileiros, importar obras e artistas para revisão e controlar os metadados antes de publicar.
                 </p>
               </Link>
 
